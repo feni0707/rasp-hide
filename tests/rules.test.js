@@ -342,10 +342,11 @@ async function run() {
     }
   }
   console.log('\nВсего тестов: ' + TESTS.length + (failed ? ', провалено: ' + failed : ''));
+  clearTimeout(watchdog);
   if (failed) process.exit(1);
 }
 
 run();
 
-// Страховка: если тест зависнет — аварийно выйти.
-setTimeout(() => { process.exit(2) }, 10000);
+// Страховка: если тест зависнет — аварийно выйти (снимается по завершении).
+const watchdog = setTimeout(() => { process.exit(2) }, 10000);
