@@ -1,0 +1,9 @@
+{
+  "name": "rasp-hide",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Скрытие пар в расписании ТПУ на ro-rasp.tpu.ru",
+  "scripts": {
+    "test": "node tests/matcher.test.js"
+  }
+}
