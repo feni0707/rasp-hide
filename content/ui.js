@@ -456,9 +456,10 @@
     }
     ensureGlobalListeners();
     // Удалить контроллеры пар, которых больше нет на странице.
+    // WeakMap не итерируемый — проходим по контроллерам (Set).
     const seen = new Set(pairsMeta.map((pm) => pm.pair));
-    for (const [pair, c] of [...controllerByPair]) {
-      if (!seen.has(pair)) removeController(c);
+    for (const c of [...controllers]) {
+      if (c.pm && c.pm.pair && !seen.has(c.pm.pair)) removeController(c);
     }
     const { pairByEl, blockByEl } = buildPairIndexes(pairsMeta);
     for (const pm of pairsMeta) {
