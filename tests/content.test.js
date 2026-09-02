@@ -359,6 +359,54 @@ async function testProcessCellsIgnoresNamelessPairs() {
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 0 }]);
 }
 
+async function testProcessCellsHidesPairBySecondTeacher() {
+  // Одна пара с двумя преподавателями — правило по второму ФИО скрывает всю пару.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [rule('АЯ д/акад.целей.В1', 'Макаровских А. В.')],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeNode('td', { class: 'cell' });
+  const subj = makeNode('div', {}, [makeNode('span', { text: 'АЯ д/акад.целей.В1' })]);
+  const t1 = makeNode('div', {}, [makeNode('a', { href: '/user_1', text: 'Аксёнова Н. В.' })]);
+  const hr = makeNode('hr');
+  const t2 = makeNode('div', {}, [makeNode('a', { href: '/user_2', text: 'Макаровских А. В.' })]);
+  for (const el of [subj, t1, hr, t2]) cell.appendChild(el);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  assert.ok(cell.children.some((c) => c.classList.contains('rh-placeholder')), 'пара скрыта целиком');
+  for (const el of [subj, t1, t2]) assert.strictEqual(el.style.display, 'none');
+  assert.strictEqual(hr.style.display, 'none', '<hr> скрыт вместе с парой (placeholder)');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
+async function testProcessCellsKeepsPairForOtherTeacher() {
+  // Тот же предмет, но правило по другому преподавателю — пара не скрывается.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [rule('АЯ д/акад.целей.В1', 'Петров П. П.')],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeNode('td', { class: 'cell' });
+  const subj = makeNode('div', {}, [makeNode('span', { text: 'АЯ д/акад.целей.В1' })]);
+  const t1 = makeNode('div', {}, [makeNode('a', { href: '/user_1', text: 'Аксёнова Н. В.' })]);
+  const hr = makeNode('hr');
+  const t2 = makeNode('div', {}, [makeNode('a', { href: '/user_2', text: 'Макаровских А. В.' })]);
+  for (const el of [subj, t1, hr, t2]) cell.appendChild(el);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  assert.ok(!cell.children.some((c) => c.classList.contains('rh-placeholder')), 'пара не скрыта');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 0 }]);
+}
+
 async function testFullRollback() {
   const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Математика')] });
   global.chrome = mock.chrome;
@@ -395,6 +443,8 @@ async function run() {
     ['фон: не трогается в strike', testCellBackgroundUntouchedInStrike],
     ['processCells: счётчик и sendMessage', testProcessCellsCountsAndSends],
     ['processCells: ОВ/ОС не скрывается', testProcessCellsIgnoresNamelessPairs],
+    ['processCells: вторая преподаватель скрывает пару', testProcessCellsHidesPairBySecondTeacher],
+    ['processCells: другой преподаватель не скрывает', testProcessCellsKeepsPairForOtherTeacher],
     ['fullRollback: полный откат', testFullRollback],
   ];
   let failed = 0;

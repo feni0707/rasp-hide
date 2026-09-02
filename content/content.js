@@ -135,8 +135,8 @@
       for (const pair of pairs) {
         const name = M.getPairName(pair);
         if (!name) continue; // ОВ/ОС — не скрываемые
-        const teacher = M.getPairTeacher(pair);
-        const matched = settings.rules.some((r) => M.matchRule(name, teacher, r));
+        const teachers = M.getPairTeachers(pair);
+        const matched = settings.rules.some((r) => M.matchRule(name, teachers, r));
         if (matched) {
           hidePair(pair, cell);
           hiddenCount++;

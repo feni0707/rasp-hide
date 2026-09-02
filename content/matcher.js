@@ -72,37 +72,42 @@
   }
 
   /**
-   * ФИО преподавателя пары — первый <a href="/user_..."> (видимый текст).
+   * Все видимые ФИО преподавателей пары из ссылок href="/user_...".
+   * У пары может быть несколько преподавателей (ПР Преп1 <hr> Преп2 — одна пара).
    * @param {Element[]} pair
-   * @returns {string|null} null, если преподавателя нет.
+   * @returns {string[]} уникальные нормализованные ФИО; пустой, если преподавателей нет.
    */
-  function getPairTeacher(pair) {
-    if (!pair) return null;
+  function getPairTeachers(pair) {
+    if (!pair) return [];
+    const teachers = [];
     for (const el of pair) {
       if (typeof el.querySelector !== 'function') continue;
       const a = el.querySelector('a[href^="/user_"]');
-      if (a) {
-        const name = normalize(a.textContent);
-        return name || null;
-      }
+      if (!a) continue;
+      const name = normalize(a.textContent);
+      if (name && teachers.indexOf(name) === -1) teachers.push(name);
     }
-    return null;
+    return teachers;
   }
 
   /**
    * Точное совпадение пары с правилом.
+   * Преподаватели пары — массив: совпадение, если правило «у всех» (teacher: null)
+   * или хотя бы одно ФИО пары совпало (OR внутри пары).
    * @param {string|null} name - название пары (нормализованное)
-   * @param {string|null} teacher - ФИО пары (нормализованное) или null
+   * @param {string[]|string|null} teachers - ФИО преподавателей пары (нормализованные) или null
    * @param {object} rule - { subject, teacher: string|null, enabled }
    * @returns {boolean}
    */
-  function matchRule(name, teacher, rule) {
+  function matchRule(name, teachers, rule) {
     if (!rule) return false;
     if (rule.enabled === false) return false;
     if (!name) return false;
     if (normalize(name) !== normalize(rule.subject)) return false;
     if (rule.teacher == null) return true; // «у всех преподавателей»
-    return normalize(rule.teacher) === normalize(teacher || '');
+    const list = Array.isArray(teachers) ? teachers : [teachers || ''];
+    const target = normalize(rule.teacher);
+    return list.some((t) => target === normalize(t));
   }
 
   /**
@@ -133,7 +138,7 @@
     normalize,
     splitIntoPairs,
     getPairName,
-    getPairTeacher,
+    getPairTeachers,
     matchRule,
     isCellFullyHidden,
   };

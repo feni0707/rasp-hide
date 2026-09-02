@@ -146,14 +146,39 @@ function testPairNameWithoutSubject() {
   assert.strictEqual(M.getPairName(group), null);
 }
 
-/* ---------- getPairTeacher ---------- */
+/* ---------- getPairTeachers ---------- */
 
-function testPairTeacher() {
-  assert.strictEqual(
-    M.getPairTeacher(pairDiv('Математика', { teacher: 'Иванов И. И.' })),
-    'Иванов И. И.'
+function testPairTeachers() {
+  assert.deepStrictEqual(
+    M.getPairTeachers(pairDiv('Математика', { teacher: 'Иванов И. И.' })),
+    ['Иванов И. И.']
   );
-  assert.strictEqual(M.getPairTeacher(pairDiv('Математика')), null);
+  assert.deepStrictEqual(M.getPairTeachers(pairDiv('Математика')), []);
+}
+
+function testPairTeachersMultiple() {
+  // Одна пара с двумя преподавателями (ПР Преп1 <hr> Преп2).
+  const group = [
+    el('div', {}, [el('b', { text: 'ПР' }), el('span', { text: 'АЯ д/акад.целей.В1' })]),
+    el('div', {}, [el('a', { href: '/user_1', text: 'Аксёнова Н. В.' })]),
+    el('hr'),
+    el('div', {}, [el('a', { href: '/user_2', text: 'Макаровских А. В.' })]),
+  ];
+  const cell = el('td', { class: 'cell' }, group);
+  const pair = M.splitIntoPairs(cell.children)[0];
+  assert.deepStrictEqual(M.getPairTeachers(pair), ['Аксёнова Н. В.', 'Макаровских А. В.']);
+}
+
+function testPairTeachersUnique() {
+  // Повторяющийся преподаватель не дублируется в списке.
+  const group = [
+    el('div', {}, [el('b', { text: 'ПР' }), el('span', { text: 'Математика' })]),
+    el('div', {}, [el('a', { href: '/user_1', text: 'Иванов И. И.' })]),
+    el('div', {}, [el('a', { href: '/user_1', text: 'Иванов И. И.' })]),
+  ];
+  const cell = el('td', { class: 'cell' }, group);
+  const pair = M.splitIntoPairs(cell.children)[0];
+  assert.deepStrictEqual(M.getPairTeachers(pair), ['Иванов И. И.']);
 }
 
 /* ---------- matchRule ---------- */
@@ -188,6 +213,24 @@ function testMatchSpecificTeacher() {
   assert.strictEqual(M.matchRule('Математика', null, ruleTeacher), false);
   // «у всех» (null) не равно конкретному ФИО правила.
   assert.strictEqual(M.matchRule('Математика', null, rule('Математика', 'Иванов И. И.')), false);
+}
+
+function testMatchAnyTeacherOfPair() {
+  // Пара с двумя преподавателями: правило по второму ФИО совпадает (OR внутри пары).
+  const teachers = ['Аксёнова Н. В.', 'Макаровских А. В.'];
+  assert.strictEqual(
+    M.matchRule('АЯ д/акад.целей.В1', teachers, rule('АЯ д/акад.целей.В1', 'Макаровских А. В.')),
+    true
+  );
+  assert.strictEqual(
+    M.matchRule('АЯ д/акад.целей.В1', teachers, rule('АЯ д/акад.целей.В1', 'Аксёнова Н. В.')),
+    true
+  );
+  // Третьего преподавателя в паре нет — не совпадает.
+  assert.strictEqual(
+    M.matchRule('АЯ д/акад.целей.В1', teachers, rule('АЯ д/акад.целей.В1', 'Петров П. П.')),
+    false
+  );
 }
 
 function testMatchNormalizedWhitespace() {
@@ -253,11 +296,14 @@ const tests = [
   ['splitIntoPairs: 3 пары (2 скрываемые + 1 нет)', testSplitThreePairsTwoHideable],
   ['getPairName: название', testPairName],
   ['getPairName: без названия (ОВ/ОС) — null', testPairNameWithoutSubject],
-  ['getPairTeacher: ФИО / null', testPairTeacher],
+  ['getPairTeachers: ФИО / пусто', testPairTeachers],
+  ['getPairTeachers: несколько преподавателей', testPairTeachersMultiple],
+  ['getPairTeachers: без дубликатов', testPairTeachersUnique],
   ['matchRule: точное совпадение предмета', testMatchExactSubject],
   ['matchRule: подгруппы A1.1 ≠ B1', testMatchSubgroupIsExact],
   ['matchRule: «у всех»', testMatchAllTeachers],
   ['matchRule: конкретный преподаватель', testMatchSpecificTeacher],
+  ['matchRule: любой из преподавателей пары', testMatchAnyTeacherOfPair],
   ['matchRule: нормализация пробелов/NBSP', testMatchNormalizedWhitespace],
   ['matchRule: выключенное правило', testMatchDisabledRule],
   ['matchRule: пустое название не матчится', testMatchEmptyName],
