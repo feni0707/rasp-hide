@@ -131,6 +131,15 @@ function testSplitThreePairsTwoHideable() {
   );
 }
 
+function testSplitIgnoresPlaceholder() {
+  // Плейсхолдеры расширения не попадают в структуру пар.
+  const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
+  cell.children.push(el('div', { class: 'rh-placeholder', text: 'скрыто' }));
+  const pairs = M.splitIntoPairs(cell.children);
+  assert.strictEqual(pairs.length, 1);
+  assert.strictEqual(pairs[0].length, 2);
+}
+
 /* ---------- getPairName ---------- */
 
 function testPairName() {
@@ -144,6 +153,47 @@ function testPairNameWithoutSubject() {
   // Пустое название span тоже считается отсутствующим.
   const group = [el('div', {}, [el('b', { text: 'ЛК' }), el('span', { text: '   ' })])];
   assert.strictEqual(M.getPairName(group), null);
+}
+
+/* ---------- splitPairIntoBlocks ---------- */
+
+function testSplitBlocksSingleTeacher() {
+  const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
+  const pair = M.splitIntoPairs(cell.children)[0];
+  assert.deepStrictEqual(M.splitPairIntoBlocks(pair), [[pair[1]]]);
+}
+
+function testSplitBlocksTwoTeachers() {
+  // Одна пара, два преподавателя: шапка не в блоках, <hr> уходит во второй блок.
+  const group = [
+    el('div', {}, [el('b', { text: 'ПР' }), el('span', { text: 'АЯ д/акад.целей.В1' })]),
+    el('div', {}, [el('a', { href: '/user_1', text: 'Аксёнова Н. В.' })]),
+    el('hr'),
+    el('div', {}, [el('a', { href: '/user_2', text: 'Макаровских А. В.' })]),
+  ];
+  const cell = el('td', { class: 'cell' }, group);
+  const pair = M.splitIntoPairs(cell.children)[0];
+  const blocks = M.splitPairIntoBlocks(pair);
+  assert.strictEqual(blocks.length, 2);
+  assert.strictEqual(blocks[0][0], group[1], 'первый блок — преподаватель Аксёновой');
+  assert.strictEqual(blocks[1][0].tagName, 'HR', 'второй блок начинается с <hr>');
+  assert.strictEqual(blocks[1][1], group[3]);
+}
+
+function testSplitBlocksOnlyHeader() {
+  // Пара без преподавателей: тело пустое — блоков нет.
+  const cell = makeCell([pairDiv('Математика')]);
+  const pair = M.splitIntoPairs(cell.children)[0];
+  assert.deepStrictEqual(M.splitPairIntoBlocks(pair), []);
+}
+
+/* ---------- getBlockTeacher ---------- */
+
+function testBlockTeacher() {
+  const block = [el('hr'), el('div', {}, [el('a', { href: '/user_2', text: 'Макаровских А. В.' })])];
+  assert.strictEqual(M.getBlockTeacher(block), 'Макаровских А. В.');
+  assert.strictEqual(M.getBlockTeacher([el('hr')]), null);
+  assert.strictEqual(M.getBlockTeacher(null), null);
 }
 
 /* ---------- getPairTeachers ---------- */
@@ -209,27 +259,27 @@ function testMatchSpecificTeacher() {
   const ruleTeacher = rule('Математика', 'Иванов И. И.');
   assert.strictEqual(M.matchRule('Математика', 'Иванов И. И.', ruleTeacher), true);
   assert.strictEqual(M.matchRule('Математика', 'Петров П. П.', ruleTeacher), false);
-  // Правило с преподавателем не сработает на паре без преподавателя.
+  // Правило с преподавателем не сработает на блоке без преподавателя.
   assert.strictEqual(M.matchRule('Математика', null, ruleTeacher), false);
   // «у всех» (null) не равно конкретному ФИО правила.
   assert.strictEqual(M.matchRule('Математика', null, rule('Математика', 'Иванов И. И.')), false);
 }
 
-function testMatchAnyTeacherOfPair() {
-  // Пара с двумя преподавателями: правило по второму ФИО совпадает (OR внутри пары).
-  const teachers = ['Аксёнова Н. В.', 'Макаровских А. В.'];
+function testMatchBlockTeacherSecond() {
+  // Правило по конкретному преподавателю матчит блок этого преподавателя
+  // (OR по блокам выполняется на уровне content, поблочно).
   assert.strictEqual(
-    M.matchRule('АЯ д/акад.целей.В1', teachers, rule('АЯ д/акад.целей.В1', 'Макаровских А. В.')),
+    M.matchRule('АЯ д/акад.целей.В1', 'Макаровских А. В.', rule('АЯ д/акад.целей.В1', 'Макаровских А. В.')),
     true
   );
   assert.strictEqual(
-    M.matchRule('АЯ д/акад.целей.В1', teachers, rule('АЯ д/акад.целей.В1', 'Аксёнова Н. В.')),
-    true
-  );
-  // Третьего преподавателя в паре нет — не совпадает.
-  assert.strictEqual(
-    M.matchRule('АЯ д/акад.целей.В1', teachers, rule('АЯ д/акад.целей.В1', 'Петров П. П.')),
+    M.matchRule('АЯ д/акад.целей.В1', 'Аксёнова Н. В.', rule('АЯ д/акад.целей.В1', 'Макаровских А. В.')),
     false
+  );
+  // «у всех» совпадает с любым преподавателем блока.
+  assert.strictEqual(
+    M.matchRule('АЯ д/акад.целей.В1', 'Макаровских А. В.', rule('АЯ д/акад.целей.В1')),
+    true
   );
 }
 
@@ -268,10 +318,10 @@ function testCellNotFullyHiddenWhenOneVisible() {
 }
 
 function testCellFullyHiddenWithPlaceholder() {
+  // Пара скрыта (display:none), «скрыто»-плейсхолдер исключён из пар — клетка полностью скрыта.
   const cell = makeCell([pairDiv('Математика')]);
-  // Пара заменена плейсхолдером (класс rh-placeholder).
-  cell.children[0].classList = { contains: (c) => c === 'rh-placeholder' };
-  cell.children[0].style.display = '';
+  cell.children[0].style.display = 'none';
+  cell.children.push(el('div', { class: 'rh-placeholder', text: 'скрыто' }));
   assert.strictEqual(M.isCellFullyHidden(cell), true);
 }
 
@@ -294,6 +344,11 @@ const tests = [
   ['splitIntoPairs: 2 пары через <hr>', testSplitTwoPairsWithHr],
   ['splitIntoPairs: ведущий <hr> игнорируется', testSplitHrAtStartIgnored],
   ['splitIntoPairs: 3 пары (2 скрываемые + 1 нет)', testSplitThreePairsTwoHideable],
+  ['splitIntoPairs: плейсхолдер игнорируется', testSplitIgnoresPlaceholder],
+  ['splitPairIntoBlocks: один преподаватель', testSplitBlocksSingleTeacher],
+  ['splitPairIntoBlocks: два преподавателя (<hr> во 2-м блоке)', testSplitBlocksTwoTeachers],
+  ['splitPairIntoBlocks: без преподавателей', testSplitBlocksOnlyHeader],
+  ['getBlockTeacher: ФИО / null', testBlockTeacher],
   ['getPairName: название', testPairName],
   ['getPairName: без названия (ОВ/ОС) — null', testPairNameWithoutSubject],
   ['getPairTeachers: ФИО / пусто', testPairTeachers],
@@ -303,7 +358,7 @@ const tests = [
   ['matchRule: подгруппы A1.1 ≠ B1', testMatchSubgroupIsExact],
   ['matchRule: «у всех»', testMatchAllTeachers],
   ['matchRule: конкретный преподаватель', testMatchSpecificTeacher],
-  ['matchRule: любой из преподавателей пары', testMatchAnyTeacherOfPair],
+  ['matchRule: преподаватель блока', testMatchBlockTeacherSecond],
   ['matchRule: нормализация пробелов/NBSP', testMatchNormalizedWhitespace],
   ['matchRule: выключенное правило', testMatchDisabledRule],
   ['matchRule: пустое название не матчится', testMatchEmptyName],

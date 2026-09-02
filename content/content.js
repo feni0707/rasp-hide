@@ -62,19 +62,71 @@
   }
 
   /**
-   * Плейсхолдер пары, если он есть среди элементов пары.
-   * @param {HTMLElement[]} pair
-   * @returns {HTMLElement|null}
+   * Признак элемента расширения (плейсхолдер).
+   * @param {Element|null} el
+   * @returns {boolean}
    */
-  function findPlaceholder(pair) {
-    for (const el of pair) {
-      if (el.classList && el.classList.contains('rh-placeholder')) return el;
-    }
-    return null;
+  function isPh(el) {
+    return !!(el && el.classList &&
+      typeof el.classList.contains === 'function' &&
+      el.classList.contains('rh-placeholder'));
   }
 
   /**
-   * Скрытие пары: display:none (или зачёркивание) + плейсхолдер.
+   * Индекс элемента среди children клетки.
+   * @param {HTMLElement} cell
+   * @param {Element} el
+   * @returns {number} -1, если не найден.
+   */
+  function childIndex(cell, el) {
+    for (let i = 0; i < cell.children.length; i++) {
+      if (cell.children[i] === el) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Элементы расширения (плейсхолдеры) в диапазоне пары клетки.
+   * @param {HTMLElement} cell
+   * @param {HTMLElement[]} pair
+   * @returns {HTMLElement[]}
+   */
+  function placeholdersForPair(cell, pair) {
+    const result = [];
+    const start = childIndex(cell, pair[0]);
+    const end = childIndex(cell, pair[pair.length - 1]);
+    if (start < 0 || end < start) return result;
+    const snapshot = Array.prototype.slice.call(cell.children);
+    for (let i = start; i <= end + 1 && i < snapshot.length; i++) {
+      if (isPh(snapshot[i])) result.push(snapshot[i]);
+    }
+    return result;
+  }
+
+  /**
+   * Синхронизация плейсхолдеров пары с местами скрытия (attachPoints).
+   * Лишние удаляются, недостающие вставляются. Идемпотентно.
+   * @param {HTMLElement} cell
+   * @param {HTMLElement[]} pair
+   * @param {HTMLElement[]} attachPoints - элементы, после которых должен быть плейсхолдер
+   */
+  function syncPlaceholders(cell, pair, attachPoints) {
+    for (const ph of placeholdersForPair(cell, pair)) {
+      const idx = childIndex(cell, ph);
+      const prev = idx > 0 ? cell.children[idx - 1] : null;
+      if (attachPoints.indexOf(prev) === -1) ph.remove();
+    }
+    for (const point of attachPoints) {
+      const idx = childIndex(cell, point);
+      const next = idx >= 0 ? cell.children[idx + 1] : null;
+      if (isPh(next)) continue; // плейсхолдер уже стоит после точки
+      const placeholder = UI.createPlaceholder();
+      point.parentNode.insertBefore(placeholder, point.nextSibling);
+    }
+  }
+
+  /**
+   * Скрытие пары целиком: display:none (или зачёркивание) + плейсхолдер.
    * Идемпотентно — повторный прогон не дублирует плейсхолдер.
    * @param {HTMLElement[]} pair
    * @param {HTMLElement} cell
@@ -82,26 +134,23 @@
   function hidePair(pair, cell) {
     cacheCellStyle(cell);
     for (const el of pair) applyPairStyle(el, true);
-    const ph = findPlaceholder(pair);
-    if (settings.style === 'strike') {
-      if (ph) ph.remove();
-      return;
-    }
-    if (!ph) {
+    if (settings.style !== 'placeholder') return;
+    const last = pair[pair.length - 1];
+    const idx = childIndex(cell, last);
+    if (idx >= 0 && !isPh(cell.children[idx + 1])) {
       const placeholder = UI.createPlaceholder();
-      const last = pair[pair.length - 1];
       last.parentNode.insertBefore(placeholder, last.nextSibling);
     }
   }
 
   /**
-   * Возврат пары: снять скрытие, удалить плейсхолдер.
+   * Возврат пары: снять скрытие со всех элементов, удалить плейсхолдеры.
    * @param {HTMLElement[]} pair
+   * @param {HTMLElement} [cell]
    */
-  function restorePair(pair) {
+  function restorePair(pair, cell) {
     for (const el of pair) applyPairStyle(el, false);
-    const ph = findPlaceholder(pair);
-    if (ph) ph.remove();
+    if (cell) syncPlaceholders(cell, pair, []);
   }
 
   /**
@@ -124,6 +173,9 @@
 
   /**
    * Прогон по всем клеткам расписания: скрыть/вернуть пары, фон, счётчик.
+   * Пара с несколькими преподавателями скрывается поблочно: каждый блок
+   * ([Преп N...] после <hr>) проверяется правилом независимо; «шапка» пары
+   * скрывается, только когда скрыты ВСЕ её блоки.
    */
   function processCells() {
     const table = document.querySelector('#raspisanie-table');
@@ -131,18 +183,47 @@
     const cells = table.querySelectorAll('td.cell');
     let hiddenCount = 0;
     for (const cell of cells) {
+      cacheCellStyle(cell);
       const pairs = M.splitIntoPairs(cell.children);
       for (const pair of pairs) {
         const name = M.getPairName(pair);
         if (!name) continue; // ОВ/ОС — не скрываемые
-        const teachers = M.getPairTeachers(pair);
-        const matched = settings.rules.some((r) => M.matchRule(name, teachers, r));
-        if (matched) {
-          hidePair(pair, cell);
-          hiddenCount++;
+        const header = pair[0];
+        const blocks = M.splitPairIntoBlocks(pair);
+        const attachPoints = [];
+        let allHidden = true;
+
+        if (blocks.length === 0) {
+          // Пара без блоков преподавателей — скрываема только «у всех».
+          const matched = settings.rules.some((r) => M.matchRule(name, null, r));
+          if (matched) {
+            applyPairStyle(header, true);
+            if (settings.style === 'placeholder') attachPoints.push(pair[pair.length - 1]);
+            hiddenCount++;
+          } else {
+            applyPairStyle(header, false);
+          }
         } else {
-          restorePair(pair);
+          const hiddenBlocks = [];
+          for (const block of blocks) {
+            const t = M.getBlockTeacher(block);
+            const matched = settings.rules.some((r) => M.matchRule(name, t, r));
+            if (matched) {
+              for (const el of block) applyPairStyle(el, true);
+              hiddenBlocks.push(block[block.length - 1]);
+              hiddenCount++;
+            } else {
+              for (const el of block) applyPairStyle(el, false);
+              allHidden = false;
+            }
+          }
+          applyPairStyle(header, allHidden);
+          if (settings.style === 'placeholder') {
+            if (allHidden) attachPoints.push(pair[pair.length - 1]); // одна «скрыто» на всю пару
+            else attachPoints.push(...hiddenBlocks); // плейсхолдер после каждого скрытого блока
+          }
         }
+        syncPlaceholders(cell, pair, attachPoints);
       }
       updateCellBackground(cell);
     }
@@ -160,7 +241,7 @@
       for (const cell of cells) {
         restoreCellStyle(cell);
         const pairs = M.splitIntoPairs(cell.children);
-        for (const pair of pairs) restorePair(pair);
+        for (const pair of pairs) restorePair(pair, cell);
       }
     }
     lastCount = null;
@@ -202,6 +283,7 @@
           style: res.style === 'strike' ? 'strike' : 'placeholder',
           rules: Array.isArray(res.rules) ? res.rules : [],
         };
+        lastCount = null; // настройки изменились — счётчик считается заново
         resolve(settings);
       });
     });
@@ -211,9 +293,10 @@
     cacheCellStyle,
     restoreCellStyle,
     applyPairStyle,
-    findPlaceholder,
+    isPh,
     hidePair,
     restorePair,
+    syncPlaceholders,
     updateCellBackground,
     processCells,
     fullRollback,

@@ -260,7 +260,7 @@ async function testHrKeptInStrike() {
   assert.ok(!hr.classList.contains('rh-strike'), '<hr> без класса зачёркивания');
 
   // возврат — ничего не остаётся от скрытия
-  C.restorePair(pair);
+  C.restorePair(pair, cell);
   assert.strictEqual(hr.style.display, '');
   assert.ok(!subj.classList.contains('rh-strike'));
 }
@@ -272,7 +272,7 @@ async function testRestorePair() {
 
   const cell = makeCell([pairDiv('Математика')]);
   C.hidePair(M.splitIntoPairs(cell.children)[0], cell);
-  C.restorePair(M.splitIntoPairs(cell.children)[0]);
+  C.restorePair(M.splitIntoPairs(cell.children)[0], cell);
 
   for (const el of cell.children) {
     if (el.classList.contains('rh-placeholder')) continue;
@@ -295,7 +295,7 @@ async function testCellBackgroundTransparentWhenFullyHidden() {
   assert.strictEqual(cell.style['background-color'], 'transparent !important');
 
   // возврат — исходный фон восстановлен
-  C.restorePair(M.splitIntoPairs(cell.children)[0]);
+  C.restorePair(M.splitIntoPairs(cell.children)[0], cell);
   C.updateCellBackground(cell);
   assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff');
 }
@@ -359,8 +359,19 @@ async function testProcessCellsIgnoresNamelessPairs() {
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 0 }]);
 }
 
-async function testProcessCellsHidesPairBySecondTeacher() {
-  // Одна пара с двумя преподавателями — правило по второму ФИО скрывает всю пару.
+function makeTwoTeacherCell(subject) {
+  const cell = makeNode('td', { class: 'cell' });
+  const subj = makeNode('div', {}, [makeNode('span', { text: subject })]);
+  const t1 = makeNode('div', {}, [makeNode('a', { href: '/user_1', text: 'Аксёнова Н. В.' })]);
+  const hr = makeNode('hr');
+  const t2 = makeNode('div', {}, [makeNode('a', { href: '/user_2', text: 'Макаровских А. В.' })]);
+  for (const el of [subj, t1, hr, t2]) cell.appendChild(el);
+  return { cell, subj, t1, hr, t2 };
+}
+
+async function testProcessCellsHidesSecondTeacherBlock() {
+  // Правило по второму преподавателю скрывает ТОЛЬКО его блок: шапка и первый
+  // преподаватель остаются видимыми (поблочное скрытие одной пары).
   const mock = makeChromeMock({
     style: 'placeholder',
     rules: [rule('АЯ д/акад.целей.В1', 'Макаровских А. В.')],
@@ -368,20 +379,89 @@ async function testProcessCellsHidesPairBySecondTeacher() {
   global.chrome = mock.chrome;
   await C.loadSettings();
 
-  const cell = makeNode('td', { class: 'cell' });
-  const subj = makeNode('div', {}, [makeNode('span', { text: 'АЯ д/акад.целей.В1' })]);
-  const t1 = makeNode('div', {}, [makeNode('a', { href: '/user_1', text: 'Аксёнова Н. В.' })]);
-  const hr = makeNode('hr');
-  const t2 = makeNode('div', {}, [makeNode('a', { href: '/user_2', text: 'Макаровских А. В.' })]);
-  for (const el of [subj, t1, hr, t2]) cell.appendChild(el);
+  const cell = makeTwoTeacherCell('АЯ д/акад.целей.В1').cell;
   global.document = makeSchedule([cell]);
 
   C.processCells();
 
-  assert.ok(cell.children.some((c) => c.classList.contains('rh-placeholder')), 'пара скрыта целиком');
-  for (const el of [subj, t1, t2]) assert.strictEqual(el.style.display, 'none');
-  assert.strictEqual(hr.style.display, 'none', '<hr> скрыт вместе с парой (placeholder)');
+  const t1 = cell.children[1];
+  const hr = cell.children[2];
+  const t2 = cell.children[3];
+  assert.strictEqual(cell.children[0].style.display, '', 'шапка пары видима');
+  assert.strictEqual(t1.style.display, '', 'блок Аксёновой видим');
+  assert.strictEqual(hr.style.display, 'none', '<hr> скрыт вместе со вторым блоком');
+  assert.strictEqual(t2.style.display, 'none', 'блок Макаровских скрыт');
+
+  const ph = cell.children.find((c) => c.classList.contains('rh-placeholder'));
+  assert.ok(ph, 'плейсхолдер вставлен после скрытого блока');
+  assert.strictEqual(cell.children.indexOf(ph), 4, 'плейсхолдер после второго блока');
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
+async function testProcessCellsHidesSecondTeacherBlockStrike() {
+  const mock = makeChromeMock({
+    style: 'strike',
+    rules: [rule('АЯ д/акад.целей.В1', 'Макаровских А. В.')],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const { cell, subj, t1, hr, t2 } = makeTwoTeacherCell('АЯ д/акад.целей.В1');
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  assert.ok(!subj.classList.contains('rh-strike'), 'шапка не зачёркнута');
+  assert.ok(!t1.classList.contains('rh-strike'), 'Аксёнова не зачёркнута');
+  assert.ok(t2.classList.contains('rh-strike'), 'Макаровских зачёркнут');
+  assert.strictEqual(hr.style.display, '', '<hr> в strike не трогается');
+  assert.ok(!cell.children.some((c) => c.classList.contains('rh-placeholder')), 'плейсхолдеров нет');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
+async function testProcessCellsFullHidePairByAllTeachers() {
+  // Оба преподавателя скрыты → скрывается и «шапка», одна «скрыто» на всю пару.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [
+      rule('АЯ д/акад.целей.В1', 'Аксёнова Н. В.'),
+      rule('АЯ д/акад.целей.В1', 'Макаровских А. В.'),
+    ],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const { cell, subj, t1, hr, t2 } = makeTwoTeacherCell('АЯ д/акад.целей.В1');
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  for (const el of [subj, t1, hr, t2]) assert.strictEqual(el.style.display, 'none');
+  const phs = cell.children.filter((c) => c.classList.contains('rh-placeholder'));
+  assert.strictEqual(phs.length, 1, 'одна «скрыто» при полном скрытии пары');
+  assert.strictEqual(cell.children.indexOf(phs[0]), 4, 'плейсхолдер после последнего элемента пары');
+  assert.strictEqual(M.isCellFullyHidden(cell), true, 'клетка полностью скрыта');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 2 }]);
+}
+
+async function testProcessCellsFullHidePairByAllTeachersRule() {
+  // «У всех» скрывает всю пару целиком.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [rule('АЯ д/акад.целей.В1')],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const { cell, subj, t1, hr, t2 } = makeTwoTeacherCell('АЯ д/акад.целей.В1');
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  for (const el of [subj, t1, hr, t2]) assert.strictEqual(el.style.display, 'none');
+  const phs = cell.children.filter((c) => c.classList.contains('rh-placeholder'));
+  assert.strictEqual(phs.length, 1);
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 2 }]);
 }
 
 async function testProcessCellsKeepsPairForOtherTeacher() {
@@ -443,7 +523,10 @@ async function run() {
     ['фон: не трогается в strike', testCellBackgroundUntouchedInStrike],
     ['processCells: счётчик и sendMessage', testProcessCellsCountsAndSends],
     ['processCells: ОВ/ОС не скрывается', testProcessCellsIgnoresNamelessPairs],
-    ['processCells: вторая преподаватель скрывает пару', testProcessCellsHidesPairBySecondTeacher],
+    ['processCells: второй преподаватель скрывает только свой блок', testProcessCellsHidesSecondTeacherBlock],
+    ['processCells: второй преподаватель скрывает блок (strike)', testProcessCellsHidesSecondTeacherBlockStrike],
+    ['processCells: оба преподавателя → шапка + одна «скрыто»', testProcessCellsFullHidePairByAllTeachers],
+    ['processCells: «у всех» скрывает всю пару', testProcessCellsFullHidePairByAllTeachersRule],
     ['processCells: другой преподаватель не скрывает', testProcessCellsKeepsPairForOtherTeacher],
     ['fullRollback: полный откат', testFullRollback],
   ];

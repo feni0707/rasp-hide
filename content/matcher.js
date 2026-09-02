@@ -42,6 +42,9 @@
     const pairs = [];
     let current = [];
     for (const child of cellChildren) {
+      // Элементы расширения (плейсхолдеры) в структуру пар не попадают.
+      if (child.classList && typeof child.classList.contains === 'function' &&
+          child.classList.contains('rh-placeholder')) continue;
       if (child.tagName === 'HR') {
         if (current.length) current.push(child);
         continue;
@@ -91,23 +94,65 @@
   }
 
   /**
-   * Точное совпадение пары с правилом.
-   * Преподаватели пары — массив: совпадение, если правило «у всех» (teacher: null)
-   * или хотя бы одно ФИО пары совпало (OR внутри пары).
+   * Разбиение пары на «блоки» преподавателей, разделённые <hr>.
+   * Первый элемент пары (div с названием/типом) — «шапка», в блоки не входит:
+   * пара вида [шапка, Преп1, <hr>, Преп2] → блоки [[Преп1], [<hr>, Преп2]].
+   * <hr> принадлежит следующему за ним блоку (скрывается вместе с ним).
+   * @param {Element[]} pair
+   * @returns {Element[][]}
+   */
+  function splitPairIntoBlocks(pair) {
+    if (!pair || pair.length < 2) return [];
+    const body = pair.slice(1);
+    const blocks = [];
+    let current = [];
+    for (const el of body) {
+      if (el.tagName === 'HR') {
+        if (current.length) blocks.push(current);
+        current = [el];
+      } else {
+        current.push(el);
+      }
+    }
+    if (current.length) blocks.push(current);
+    return blocks;
+  }
+
+  /**
+   * ФИО преподавателя блока — первый <a href="/user_..."> (видимый текст).
+   * @param {Element[]} block
+   * @returns {string|null} null, если преподавателя в блоке нет.
+   */
+  function getBlockTeacher(block) {
+    if (!block) return null;
+    for (const el of block) {
+      if (typeof el.querySelector !== 'function') continue;
+      const a = el.querySelector('a[href^="/user_"]');
+      if (a) {
+        const name = normalize(a.textContent);
+        if (name) return name;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Совпадение правила с ФИО преподавателя (одна клетка — преподаватель пары/блока).
+   * «У всех» (teacher: null) совпадает с любым преподавателем; конкретное ФИО —
+   * только с точным совпадением. Для пары с несколькими преподавателями матчинг
+   * выполняется по каждому блоку отдельно (см. splitPairIntoBlocks).
    * @param {string|null} name - название пары (нормализованное)
-   * @param {string[]|string|null} teachers - ФИО преподавателей пары (нормализованные) или null
+   * @param {string|null} teacher - ФИО преподавателя блока/пары или null
    * @param {object} rule - { subject, teacher: string|null, enabled }
    * @returns {boolean}
    */
-  function matchRule(name, teachers, rule) {
+  function matchRule(name, teacher, rule) {
     if (!rule) return false;
     if (rule.enabled === false) return false;
     if (!name) return false;
     if (normalize(name) !== normalize(rule.subject)) return false;
     if (rule.teacher == null) return true; // «у всех преподавателей»
-    const list = Array.isArray(teachers) ? teachers : [teachers || ''];
-    const target = normalize(rule.teacher);
-    return list.some((t) => target === normalize(t));
+    return normalize(rule.teacher) === normalize(teacher || '');
   }
 
   /**
@@ -137,8 +182,10 @@
   const M = {
     normalize,
     splitIntoPairs,
+    splitPairIntoBlocks,
     getPairName,
     getPairTeachers,
+    getBlockTeacher,
     matchRule,
     isCellFullyHidden,
   };
