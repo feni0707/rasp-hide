@@ -235,6 +235,36 @@ async function testHrHiddenWithPair() {
   assert.strictEqual(hr.style.display, '', '<hr> восстанавливается при возврате');
 }
 
+async function testHrKeptInStrike() {
+  const mock = makeChromeMock({ style: 'strike', rules: [] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  // Одна пара с двумя преподавателями: <hr> внутри пары — разделитель, не граница пар.
+  const cell = makeNode('td', { class: 'cell' });
+  const subj = makeNode('div', {}, [makeNode('span', { text: 'АЯ' })]);
+  const t1 = makeNode('div', {}, [makeNode('a', { href: '/user_1', text: 'Иванов И. И.' })]);
+  const hr = makeNode('hr');
+  const t2 = makeNode('div', {}, [makeNode('a', { href: '/user_2', text: 'Петров П. П.' })]);
+  for (const el of [subj, t1, hr, t2]) cell.appendChild(el);
+
+  const pair = M.splitIntoPairs(cell.children)[0];
+  assert.strictEqual(M.getPairName(pair), 'АЯ', 'вся группа — одна пара');
+  C.hidePair(pair, cell);
+
+  for (const el of [subj, t1, t2]) {
+    assert.strictEqual(el.style.display, '', 'содержимое пары остаётся видимым');
+    assert.ok(el.classList.contains('rh-strike'), 'содержимое пары зачёркнуто');
+  }
+  assert.strictEqual(hr.style.display, '', '<hr> в strike не скрывается');
+  assert.ok(!hr.classList.contains('rh-strike'), '<hr> без класса зачёркивания');
+
+  // возврат — ничего не остаётся от скрытия
+  C.restorePair(pair);
+  assert.strictEqual(hr.style.display, '');
+  assert.ok(!subj.classList.contains('rh-strike'));
+}
+
 async function testRestorePair() {
   const mock = makeChromeMock({ style: 'placeholder', rules: [] });
   global.chrome = mock.chrome;
@@ -357,7 +387,8 @@ async function run() {
     ['hidePair: плейсхолдер', testHidePairPlaceholder],
     ['hidePair: идемпотентность', testHidePairIdempotent],
     ['hidePair: strike', testHidePairStrike],
-    ['<hr> скрывается и восстанавливается', testHrHiddenWithPair],
+    ['<hr> скрывается и восстанавливается (placeholder)', testHrHiddenWithPair],
+    ['<hr> не трогается в strike', testHrKeptInStrike],
     ['restorePair: возврат', testRestorePair],
     ['фон: transparent при полном скрытии', testCellBackgroundTransparentWhenFullyHidden],
     ['фон: не трогается при видимой паре', testCellBackgroundKeptWhenOneVisible],

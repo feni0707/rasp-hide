@@ -1,7 +1,8 @@
 /**
  * Content script: применение правил к расписанию.
  * Прогон по #raspisanie-table td.cell, скрытие пар (плейсхолдер/зачёркивание),
- * <hr> пары скрывается вместе с парой и восстанавливается при возврате,
+ * <hr> пары скрывается/восстанавливается вместе с парой в placeholder-режиме;
+ * в strike-режиме <hr> не трогается (разделитель преподавателей остаётся),
  * фон клетки (transparent при полном скрытии, только placeholder),
  * WeakMap-кэш исходных стилей, MutationObserver (debounce ~120 мс),
  * chrome.storage.onChanged, счётчик скрытых пар → sendMessage.
@@ -40,14 +41,15 @@
 
   /**
    * Применение стиля скрытия к одному элементу пары.
-   * <hr> скрывается вместе с парой в обоих режимах (фикс «старой полосы»).
+   * <hr> скрывается вместе с парой только в режиме placeholder (фикс «старой полосы»);
+   * в strike-режиме <hr> не трогаем — разделитель преподавателей/подпар остаётся на месте.
    * @param {HTMLElement} el
    * @param {boolean} hidden
    */
   function applyPairStyle(el, hidden) {
     if (el.tagName === 'HR') {
+      if (settings.style === 'strike') return;
       el.style.display = hidden ? 'none' : '';
-      el.classList.remove('rh-strike');
       return;
     }
     if (hidden && settings.style === 'strike') {
