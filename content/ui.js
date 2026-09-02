@@ -11,6 +11,7 @@
   const STYLE_ID = 'rh-styles';
   const rhElements = new Set();
   const controllers = new Set();
+  const controllerByPair = new WeakMap(); // пары → контроллер (идемпотентный пересбор)
   const hoverInfo = new WeakMap();
   const buttonControllers = new WeakMap();
   let globalListenersAttached = false;
@@ -394,9 +395,11 @@
     const c = {
       pm, cell, hoverBtn, menu,
       mode: 'hide', blockIdx: null, hideTimer: null,
+      bound: [], // элементы, на которые повешен hover (для очистки при пересборе)
     };
     buttonControllers.set(hoverBtn, c);
     controllers.add(c);
+    controllerByPair.set(pm.pair, c);
     return c;
   }
 
@@ -409,42 +412,76 @@
    * @param {Map} blockByEl
    */
   function bindHoverTargets(pm, c, pairByEl, blockByEl) {
+    // Снять старые привязки (элементы пары могли изменить видимость).
+    for (const el of c.bound) hoverInfo.delete(el);
+    c.bound = [];
+    const bind = (el, mode, blockIdx) => {
+      hoverInfo.set(el, { el, controller: c, mode, blockIdx });
+      c.bound.push(el);
+    };
     // Видимые элементы пары: кнопка «Скрыть».
     for (const el of pm.pair) {
       if (el.tagName === 'HR') continue;
       if (el.style && el.style.display === 'none') continue;
       if (el.classList && el.classList.contains('rh-strike')) continue;
-      hoverInfo.set(el, { el, controller: c, mode: 'hide', blockIdx: null });
+      bind(el, 'hide', null);
     }
     // Плейсхолдеры пары (placeholder-режим): «Вернуть» по контексту.
     for (const ph of placeholdersForPair(pm.cell, pm.pair)) {
       const ctx = contextForPlaceholder(pm.cell, ph, pairByEl, blockByEl);
       if (!ctx) continue;
-      hoverInfo.set(ph, { el: ph, controller: c, mode: 'restore', blockIdx: ctx.blockIdx });
+      bind(ph, 'restore', ctx.blockIdx);
     }
     // Зачёркнутые элементы (strike-режим): «Вернуть».
     for (const el of pm.pair) {
       if (el.tagName === 'HR') continue;
       if (!(el.classList && el.classList.contains('rh-strike'))) continue;
       const bi = blockByEl.get(el);
-      hoverInfo.set(el, { el, controller: c, mode: 'restore', blockIdx: bi ? bi.blockIdx : null });
+      bind(el, 'restore', bi ? bi.blockIdx : null);
     }
   }
 
   /**
    * Пересборка hover-UI по метаданным пар (вызывается content.js после прогона).
-   * Идемпотентно: старые кнопки/меню удаляются, создаются заново.
+   * Идемпотентно: контроллеры пар переиспользуются (без пересоздания DOM),
+   * новые пары — создаются, исчезнувшие — удаляются. Без этого MutationObserver
+   * зацикливался бы: добавление кнопок порождало бы новый прогон и пересоздание.
    * @param {object[]} pairsMeta
    */
   function syncHover(pairsMeta) {
-    destroyAllHover();
     if (!canAttachEvents()) return;
+    if (pairsMeta.length === 0) {
+      destroyAllHover();
+      return;
+    }
     ensureGlobalListeners();
+    // Удалить контроллеры пар, которых больше нет на странице.
+    const seen = new Set(pairsMeta.map((pm) => pm.pair));
+    for (const [pair, c] of [...controllerByPair]) {
+      if (!seen.has(pair)) removeController(c);
+    }
     const { pairByEl, blockByEl } = buildPairIndexes(pairsMeta);
     for (const pm of pairsMeta) {
       if (pm.name == null) continue; // ОВ/ОС в hover-UI не участвуют
-      const c = makeController(pm);
+      let c = controllerByPair.get(pm.pair);
+      if (!c) c = makeController(pm);
       bindHoverTargets(pm, c, pairByEl, blockByEl);
+    }
+  }
+
+  /**
+   * Удаление контроллера пары (кнопка, меню, привязки hover).
+   * @param {object} c
+   */
+  function removeController(c) {
+    clearTimeout(c.hideTimer);
+    if (c.hoverBtn && c.hoverBtn.parentNode) c.hoverBtn.parentNode.removeChild(c.hoverBtn);
+    if (c.menu && c.menu.parentNode) c.menu.parentNode.removeChild(c.menu);
+    for (const el of c.bound) hoverInfo.delete(el);
+    buttonControllers.delete(c.hoverBtn);
+    controllers.delete(c);
+    if (c.pm && c.pm.pair && controllerByPair.get(c.pm.pair) === c) {
+      controllerByPair.delete(c.pm.pair);
     }
   }
 
@@ -452,12 +489,7 @@
    * Удаление всех hover-контроллеров (кнопки и меню).
    */
   function destroyAllHover() {
-    for (const c of controllers) {
-      clearTimeout(c.hideTimer);
-      if (c.hoverBtn && c.hoverBtn.parentNode) c.hoverBtn.parentNode.removeChild(c.hoverBtn);
-      if (c.menu && c.menu.parentNode) c.menu.parentNode.removeChild(c.menu);
-    }
-    controllers.clear();
+    for (const c of [...controllers]) removeController(c);
   }
 
   /**
