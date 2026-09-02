@@ -32,6 +32,20 @@
   }
 
   /**
+   * Элемент расширения (класс с префиксом rh-): плейсхолдеры, hover-кнопки,
+   * меню. В структуру пар не попадают.
+   * @param {Element|null} el
+   * @returns {boolean}
+   */
+  function isRhElement(el) {
+    if (!el || !el.classList || typeof el.classList.contains !== 'function') return false;
+    if (el.classList.contains('rh-placeholder')) return true;
+    const cls = el.className;
+    if (typeof cls !== 'string') return false;
+    return cls.split(/\s+/).some((c) => c.indexOf('rh-') === 0);
+  }
+
+  /**
    * Группировка детей клетки на пары.
    * Старт пары — <div> с <b> (или, пока группа не начата, <div> со <span>);
    * <hr> прикрепляется к текущей паре; остальные <div> — в текущую пару.
@@ -42,9 +56,8 @@
     const pairs = [];
     let current = [];
     for (const child of cellChildren) {
-      // Элементы расширения (плейсхолдеры) в структуру пар не попадают.
-      if (child.classList && typeof child.classList.contains === 'function' &&
-          child.classList.contains('rh-placeholder')) continue;
+      // Элементы расширения (плейсхолдеры, hover-кнопки, меню) в пары не попадают.
+      if (isRhElement(child)) continue;
       if (child.tagName === 'HR') {
         if (current.length) current.push(child);
         continue;
