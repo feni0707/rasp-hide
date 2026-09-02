@@ -324,6 +324,35 @@ async function testCellBackgroundUntouchedInStrike() {
   assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff', 'в strike фон не трогается');
 }
 
+async function testStrikeRunDoesNotRemovePlaceholders() {
+  // Переключение значения/стиля между прогонами порождает «случайный» strike-прогон
+  // (MutationObserver/debounce) поверх placeholder-состояния: он НЕ должен уничтожать
+  // плейсхолдеры — иначе после возврата в placeholder пары исчезают без «скрыто».
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика')]);
+  cell.setAttribute('style', 'background-color: #fff');
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+  assert.ok(cell.children.some((c) => c.classList.contains('rh-placeholder')), 'placeholder: плейсхолдер создан');
+
+  mock.state.style = 'strike';
+  await C.loadSettings();
+  C.processCells();
+  assert.ok(cell.children.some((c) => c.classList.contains('rh-placeholder')), 'strike-прогон не трогает плейсхолдер');
+
+  mock.state.style = 'placeholder';
+  await C.loadSettings();
+  C.processCells();
+  const phs = cell.children.filter((c) => c.classList.contains('rh-placeholder'));
+  assert.strictEqual(phs.length, 1, 'плейсхолдер не задвоился');
+  assert.strictEqual(cell.children[0].style.display, 'none', 'пара остаётся скрытой');
+  assert.strictEqual(cell.style['background-color'], 'transparent !important', 'фон transparent после возврата');
+}
+
 /* ---------- processCells / fullRollback ---------- */
 
 async function testProcessCellsCountsAndSends() {
@@ -521,6 +550,7 @@ async function run() {
     ['фон: transparent при полном скрытии', testCellBackgroundTransparentWhenFullyHidden],
     ['фон: не трогается при видимой паре', testCellBackgroundKeptWhenOneVisible],
     ['фон: не трогается в strike', testCellBackgroundUntouchedInStrike],
+    ['переключение стиля: strike не удаляет плейсхолдеры', testStrikeRunDoesNotRemovePlaceholders],
     ['processCells: счётчик и sendMessage', testProcessCellsCountsAndSends],
     ['processCells: ОВ/ОС не скрывается', testProcessCellsIgnoresNamelessPairs],
     ['processCells: второй преподаватель скрывает только свой блок', testProcessCellsHidesSecondTeacherBlock],

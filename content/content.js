@@ -4,6 +4,9 @@
  * <hr> пары скрывается/восстанавливается вместе с парой в placeholder-режиме;
  * в strike-режиме <hr> не трогается (разделитель преподавателей остаётся),
  * фон клетки (transparent при полном скрытии, только placeholder),
+ * плейсхолдеры синхронизируются только в placeholder-режиме — случайный
+ * strike-прогон (MutationObserver/debounce) их не уничтожает, поэтому
+ * переключение стиля не теряет «скрыто» и не ломает фон клетки,
  * WeakMap-кэш исходных стилей, MutationObserver (debounce ~120 мс),
  * chrome.storage.onChanged, счётчик скрытых пар → sendMessage.
  */
@@ -106,11 +109,16 @@
   /**
    * Синхронизация плейсхолдеров пары с местами скрытия (attachPoints).
    * Лишние удаляются, недостающие вставляются. Идемпотентно.
+   * В strike-режиме плейсхолдеры не трогаются: случайный strike-прогон
+   * (MutationObserver/debounce) не должен уничтожать их при переключении стиля
+   * — плейсхолдеры живут только в placeholder-режиме и удаляются своим же
+   * прогоном либо полным откатом.
    * @param {HTMLElement} cell
    * @param {HTMLElement[]} pair
    * @param {HTMLElement[]} attachPoints - элементы, после которых должен быть плейсхолдер
    */
   function syncPlaceholders(cell, pair, attachPoints) {
+    if (settings.style !== 'placeholder') return;
     for (const ph of placeholdersForPair(cell, pair)) {
       const idx = childIndex(cell, ph);
       const prev = idx > 0 ? cell.children[idx - 1] : null;
@@ -128,6 +136,7 @@
   /**
    * Скрытие пары целиком: display:none (или зачёркивание) + плейсхолдер.
    * Идемпотентно — повторный прогон не дублирует плейсхолдер.
+   * В strike-режиме плейсхолдеры не трогаются (их синхронизирует placeholder-прогон).
    * @param {HTMLElement[]} pair
    * @param {HTMLElement} cell
    */
@@ -322,8 +331,11 @@
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'sync') return;
     loadSettings().then(() => {
-      if (settings.enabled) processCells();
-      else fullRollback();
+      if (!settings.enabled) { fullRollback(); return; }
+      // Реальный переход на «зачеркнуть»: плейсхолдеры снимаются атомарно,
+      // чтобы не остались висячие «скрыто» у зачёркнутых пар.
+      if (changes.style && changes.style.newValue === 'strike') UI.removeAllRhElements();
+      processCells();
     });
   });
 
