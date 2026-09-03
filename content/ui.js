@@ -17,6 +17,9 @@
   const hoverInfo = new WeakMap();
   const buttonControllers = new WeakMap();
   let globalListenersAttached = false;
+  // Задержка показа кнопки: кнопка не мигает при быстром движении мыши
+  // по строкам расписания (сбрасывается при переходе на другой элемент).
+  const SHOW_DELAY_MS = 120;
 
   const M = global.RASP_HIDE_MATCHER;
   const R = global.RASP_HIDE_RULES;
@@ -42,15 +45,28 @@
       '.rh-strike{opacity:.35 !important;text-decoration:line-through !important;}' +
       '.rh-strike a,.rh-strike b{text-decoration:line-through;}' +
       '.rh-placeholder{color:#9ca3af;font-size:12px;padding:4px 0;opacity:.7;user-select:none;}' +
-      '.rh-hover-btn{position:absolute;top:2px;right:2px;z-index:20;display:none;' +
-        'background:#fff;border:1px solid #cbd5e1;border-radius:4px;' +
-        'padding:1px 8px;font-size:11px;line-height:1.4;color:#374151;' +
-        'cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.15);user-select:none;}' +
+      // Кнопка: плавное появление (opacity+сдвиг), visibility с задержкой,
+      // чтобы fade-out успевал отыграться до скрытия из потока событий.
+      '.rh-hover-btn{position:absolute;top:2px;right:2px;z-index:20;' +
+        'visibility:hidden;opacity:0;transform:translateY(-3px);' +
+        'transition:opacity .12s ease,transform .12s ease,visibility 0s linear .12s;' +
+        'background:#fff;border:1px solid #cbd5e1;border-radius:6px;' +
+        'padding:2px 8px;font-size:11px;line-height:1.4;color:#374151;' +
+        'cursor:pointer;box-shadow:0 1px 4px rgba(0,0,0,.18);user-select:none;white-space:nowrap;}' +
+      '.rh-hover-btn.rh-visible{visibility:visible;opacity:1;transform:none;' +
+        'transition:opacity .12s ease,transform .12s ease,visibility 0s;}' +
+      '.rh-hover-btn:hover{background:#f8fafc;border-color:#94a3b8;}' +
       '.rh-hover-btn--restore{color:#166534;border-color:#86efac;background:#f0fdf4;}' +
-      '.rh-menu{position:absolute;top:24px;right:2px;z-index:21;display:none;' +
-        'min-width:190px;background:#fff;border:1px solid #e2e8f0;border-radius:6px;' +
+      '.rh-hover-btn--restore:hover{background:#ecfdf5;}' +
+      '.rh-menu{position:absolute;top:24px;right:2px;z-index:21;' +
+        'visibility:hidden;opacity:0;transform:translateY(-3px);' +
+        'transition:opacity .12s ease,transform .12s ease,visibility 0s linear .12s;' +
+        'min-width:190px;max-height:60vh;overflow-y:auto;' +
+        'background:#fff;border:1px solid #e2e8f0;border-radius:6px;' +
         'box-shadow:0 4px 12px rgba(0,0,0,.15);padding:4px;font-size:12px;' +
         'color:#111827;text-align:left;}' +
+      '.rh-menu.rh-visible{visibility:visible;opacity:1;transform:none;' +
+        'transition:opacity .12s ease,transform .12s ease,visibility 0s;}' +
       '.rh-menu-item{display:block;width:100%;text-align:left;background:none;border:0;' +
         'border-radius:4px;padding:4px 8px;font-size:12px;color:#111827;cursor:pointer;}' +
       '.rh-menu-item:hover{background:#f3f4f6;}' +
@@ -206,13 +222,68 @@
   }
 
   /**
-   * Позиция меню под кнопкой.
+   * Позиция меню под кнопкой. Меню измеряется даже в скрытом состоянии
+   * (visibility:hidden сохраняет layout), поэтому клэмп по вьюпорту
+   * работает до показа: не даём меню вылезти за левый край экрана и
+   * при нехватке места снизу раскрываем меню НАД кнопкой.
    * @param {object} c - контроллер
    */
   function positionMenu(c) {
-    let top = 24;
-    if (c.hoverBtn.style.top) top = parseFloat(c.hoverBtn.style.top) + 22;
-    c.menu.style.top = top + 'px';
+    const btn = c.hoverBtn;
+    const btnTop = btn.style.top ? parseFloat(btn.style.top) : 2;
+    // Меню встаёт вплотную под кнопкой (реальная высота кнопки + 2px зазор),
+    // чтобы курсор не «проваливался» в просвет между ними.
+    let btnH = 22;
+    if (typeof btn.offsetHeight === 'number' && btn.offsetHeight > 0) {
+      btnH = btn.offsetHeight;
+    }
+    c.menu.style.right = '2px';
+    c.menu.style.left = '';
+    c.menu.style.top = Math.round(btnTop + btnH + 2) + 'px';
+    if (typeof c.menu.getBoundingClientRect !== 'function' ||
+        typeof c.cell.getBoundingClientRect !== 'function') return;
+    if (typeof window === 'undefined') return;
+    const mRect = c.menu.getBoundingClientRect();
+    const cellRect = c.cell.getBoundingClientRect();
+    if (!mRect || !cellRect) return;
+    const vh = window.innerHeight || 800;
+    // Меню не помещается снизу — показываем над кнопкой.
+    if (mRect.bottom > vh - 8) {
+      c.menu.style.top = Math.max(2, Math.round(btnTop - mRect.height - 6)) + 'px';
+    }
+    // Меню вылезает за левый край экрана — прижимаем к левой границе клетки.
+    if (mRect.left < 8) {
+      c.menu.style.right = 'auto';
+      c.menu.style.left = Math.max(2, Math.round(8 - cellRect.left)) + 'px';
+    }
+  }
+
+  /**
+   * Показ кнопки контроллера (классом — для плавного fade-in).
+   * @param {object} c
+   */
+  function showBtn(c) {
+    clearTimeout(c.showTimer);
+    c.hoverBtn.classList.add('rh-visible');
+    c.btnVisible = true;
+  }
+
+  /**
+   * Скрытие кнопки контроллера.
+   * @param {object} c
+   */
+  function hideBtn(c) {
+    clearTimeout(c.showTimer);
+    c.hoverBtn.classList.remove('rh-visible');
+    c.btnVisible = false;
+  }
+
+  /**
+   * Скрытие меню контроллера.
+   * @param {object} c
+   */
+  function hideMenu(c) {
+    c.menu.classList.remove('rh-visible');
   }
 
   /**
@@ -224,20 +295,27 @@
    */
   function showFor(c, el, mode, blockIdx) {
     clearTimeout(c.hideTimer);
+    clearTimeout(c.showTimer);
     closeAllMenus();
     c.mode = mode;
     c.blockIdx = blockIdx;
-    c.hoverBtn.textContent = mode === 'restore' ? 'Вернуть' : 'Скрыть';
+    // «Скрыть ▾» — подсказка, что откроется мини-меню выбора преподавателя.
+    c.hoverBtn.textContent = mode === 'restore' ? 'Вернуть' : 'Скрыть ▾';
     c.hoverBtn.classList.toggle('rh-hover-btn--restore', mode === 'restore');
     positionButton(c.hoverBtn, el);
-    c.hoverBtn.style.display = 'block';
+    showBtn(c);
   }
 
   /**
    * Отложенное скрытие кнопки и меню (после ухода курсора).
+   * Отменяет и запланированный показ. Меню, открытое кликом, НЕ прячется:
+   * оно закрывается выбором пункта, «Отмена», кликом вне или Escape —
+   * иначе оно пропадает быстрее, чем пользователь успевает навести на него.
    * @param {object} c
    */
   function scheduleHide(c) {
+    if (c.menu.classList && c.menu.classList.contains('rh-visible')) return;
+    clearTimeout(c.showTimer);
     clearTimeout(c.hideTimer);
     c.hideTimer = setTimeout(() => hideController(c), 200);
   }
@@ -247,15 +325,15 @@
    * @param {object} c
    */
   function hideController(c) {
-    c.hoverBtn.style.display = 'none';
-    c.menu.style.display = 'none';
+    hideBtn(c);
+    hideMenu(c);
   }
 
   /**
    * Закрытие меню всех контроллеров (при переключении на другую пару).
    */
   function closeAllMenus() {
-    for (const c of controllers) c.menu.style.display = 'none';
+    for (const c of controllers) hideMenu(c);
   }
 
   /**
@@ -347,7 +425,22 @@
     globalListenersAttached = true;
     document.addEventListener('mouseover', (e) => {
       const info = findHoverInfo(e.target);
-      if (info) showFor(info.controller, info.el, info.mode, info.blockIdx);
+      if (!info) return;
+      const c = info.controller;
+      // Меню этой пары открыто — не трогаем его: даже случайное попадание
+      // курсора в просвет между кнопкой и меню (элемент пары под ними)
+      // вызывало showFor → closeAllMenus, и меню закрывалось само.
+      if (c.menu.classList.contains('rh-visible')) return;
+      // Кнопка уже видима (движение внутри той же пары) — показ мгновенно,
+      // иначе задержка: не мигает при быстром пересечении строк таблицы.
+      if (c.btnVisible) {
+        showFor(info.controller, info.el, info.mode, info.blockIdx);
+      } else {
+        clearTimeout(c.showTimer);
+        c.showTimer = setTimeout(() => {
+          showFor(info.controller, info.el, info.mode, info.blockIdx);
+        }, SHOW_DELAY_MS);
+      }
     });
     document.addEventListener('mouseout', (e) => {
       const info = findHoverInfo(e.target);
@@ -363,13 +456,11 @@
       for (const c of controllers) {
         if (isInsideController(e.target, c)) return;
       }
-      closeAllMenus();
-      for (const c of controllers) c.hoverBtn.style.display = 'none';
+      for (const c of controllers) hideController(c);
     });
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        closeAllMenus();
-        for (const c of controllers) c.hoverBtn.style.display = 'none';
+        for (const c of controllers) hideController(c);
       }
     });
   }
@@ -397,7 +488,7 @@
     const c = {
       pm, cell, hoverBtn, menu,
       header: pm.pair[0], // стабильный ключ (узел шапки пары)
-      mode: 'hide', blockIdx: null, hideTimer: null,
+      mode: 'hide', blockIdx: null, hideTimer: null, showTimer: null,
       bound: [], // элементы, на которые повешен hover (для очистки при пересборе)
     };
     buttonControllers.set(hoverBtn, c);
@@ -478,6 +569,7 @@
    */
   function removeController(c) {
     clearTimeout(c.hideTimer);
+    clearTimeout(c.showTimer);
     if (c.hoverBtn && c.hoverBtn.parentNode) c.hoverBtn.parentNode.removeChild(c.hoverBtn);
     if (c.menu && c.menu.parentNode) c.menu.parentNode.removeChild(c.menu);
     for (const el of c.bound) hoverInfo.delete(el);
@@ -516,7 +608,7 @@
     }
     addMenuItem(menu, 'Отмена', () => hideController(c));
     positionMenu(c);
-    menu.style.display = 'block';
+    menu.classList.add('rh-visible');
   }
 
   /**
@@ -622,7 +714,7 @@
     addMenuItem(menu, 'Удалить', onConfirm);
     addMenuItem(menu, 'Отмена', () => hideController(c));
     positionMenu(c);
-    menu.style.display = 'block';
+    menu.classList.add('rh-visible');
   }
 
   /**
@@ -641,7 +733,7 @@
     for (const b of buttons) addMenuItem(menu, b.label, b.action);
     addMenuItem(menu, 'Отмена', () => hideController(c));
     positionMenu(c);
-    menu.style.display = 'block';
+    menu.classList.add('rh-visible');
   }
 
   /**
