@@ -11,7 +11,9 @@
   const STYLE_ID = 'rh-styles';
   const rhElements = new Set();
   const controllers = new Set();
-  const controllerByPair = new WeakMap(); // пары → контроллер (идемпотентный пересбор)
+  const controllerByHeader = new WeakMap(); // заголовок пары (pair[0]) → контроллер.
+  // Ключ — стабильный DOM-узел, а НЕ массив пары: splitIntoPairs создаёт новый массив
+  // на каждый прогон, иначе контроллеры пересоздавались бы каждые 120 мс (зацикливание).
   const hoverInfo = new WeakMap();
   const buttonControllers = new WeakMap();
   let globalListenersAttached = false;
@@ -394,12 +396,13 @@
 
     const c = {
       pm, cell, hoverBtn, menu,
+      header: pm.pair[0], // стабильный ключ (узел шапки пары)
       mode: 'hide', blockIdx: null, hideTimer: null,
       bound: [], // элементы, на которые повешен hover (для очистки при пересборе)
     };
     buttonControllers.set(hoverBtn, c);
     controllers.add(c);
-    controllerByPair.set(pm.pair, c);
+    controllerByHeader.set(c.header, c);
     return c;
   }
 
@@ -456,15 +459,14 @@
     }
     ensureGlobalListeners();
     // Удалить контроллеры пар, которых больше нет на странице.
-    // WeakMap не итерируемый — проходим по контроллерам (Set).
-    const seen = new Set(pairsMeta.map((pm) => pm.pair));
+    const seen = new Set(pairsMeta.map((pm) => pm.pair[0]));
     for (const c of [...controllers]) {
-      if (c.pm && c.pm.pair && !seen.has(c.pm.pair)) removeController(c);
+      if (c.header && !seen.has(c.header)) removeController(c);
     }
     const { pairByEl, blockByEl } = buildPairIndexes(pairsMeta);
     for (const pm of pairsMeta) {
       if (pm.name == null) continue; // ОВ/ОС в hover-UI не участвуют
-      let c = controllerByPair.get(pm.pair);
+      let c = controllerByHeader.get(pm.pair[0]);
       if (!c) c = makeController(pm);
       bindHoverTargets(pm, c, pairByEl, blockByEl);
     }
@@ -481,8 +483,8 @@
     for (const el of c.bound) hoverInfo.delete(el);
     buttonControllers.delete(c.hoverBtn);
     controllers.delete(c);
-    if (c.pm && c.pm.pair && controllerByPair.get(c.pm.pair) === c) {
-      controllerByPair.delete(c.pm.pair);
+    if (c.header && controllerByHeader.get(c.header) === c) {
+      controllerByHeader.delete(c.header);
     }
   }
 

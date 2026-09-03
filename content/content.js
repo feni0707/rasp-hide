@@ -336,13 +336,45 @@
     module.exports = C;
   }
 
+  /**
+   * Элемент расширения (класс rh-*) или его потомок: плейсхолдер, кнопка, меню.
+   * Мутации, вызванные расширением, повторный прогон не запускают.
+   * @param {Node|null} node
+   * @returns {boolean}
+   */
+  function isRhOrInside(node) {
+    let cur = node;
+    while (cur && cur.nodeType === 1) {
+      if (cur.classList && typeof cur.classList.contains === 'function' &&
+          cur.className && String(cur.className).split(/\s+/).some((c) => c.indexOf('rh-') === 0)) {
+        return true;
+      }
+      cur = cur.parentNode;
+    }
+    return false;
+  }
+
+  /**
+   * Мутация целиком от расширения (все добавленные/удалённые узлы — rh-*)?
+   * @param {MutationRecord} m
+   * @returns {boolean}
+   */
+  function isRhMutation(m) {
+    const nodes = [];
+    if (m.addedNodes) for (const n of m.addedNodes) nodes.push(n);
+    if (m.removedNodes) for (const n of m.removedNodes) nodes.push(n);
+    if (nodes.length === 0) return false;
+    return nodes.every(isRhOrInside);
+  }
+
   // Инициализация — только в браузере (в Node — только экспорт для тестов).
   if (typeof document === 'undefined' || typeof chrome === 'undefined') return;
 
   UI.injectStyles();
 
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((mutations) => {
     if (!settings.enabled) return;
+    if (mutations.every(isRhMutation)) return; // собственные изменения расширения
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(processCells, 120);
   });
