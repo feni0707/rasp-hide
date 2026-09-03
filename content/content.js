@@ -191,6 +191,7 @@
     if (!table) return;
     const cells = table.querySelectorAll('td.cell');
     let hiddenCount = 0;
+    const allMeta = [];
     for (const cell of cells) {
       cacheCellStyle(cell);
       const pairs = M.splitIntoPairs(cell.children);
@@ -199,6 +200,8 @@
         if (!name) continue; // ОВ/ОС — не скрываемые
         const header = pair[0];
         const blocks = M.splitPairIntoBlocks(pair);
+        const blockTeachers = blocks.map((b) => M.getBlockTeacher(b));
+        const hiddenBlocks = [];
         const attachPoints = [];
         let allHidden = true;
 
@@ -212,30 +215,47 @@
           } else {
             applyPairStyle(header, false);
           }
+          allHidden = matched;
         } else {
-          const hiddenBlocks = [];
-          for (const block of blocks) {
-            const t = M.getBlockTeacher(block);
-            const matched = settings.rules.some((r) => M.matchRule(name, t, r));
+          for (let bi = 0; bi < blocks.length; bi++) {
+            const block = blocks[bi];
+            const matched = settings.rules.some((r) => M.matchRule(name, blockTeachers[bi], r));
             if (matched) {
               for (const el of block) applyPairStyle(el, true);
-              hiddenBlocks.push(block[block.length - 1]);
+              hiddenBlocks.push(true);
               hiddenCount++;
             } else {
               for (const el of block) applyPairStyle(el, false);
+              hiddenBlocks.push(false);
               allHidden = false;
             }
           }
           applyPairStyle(header, allHidden);
           if (settings.style === 'placeholder') {
-            if (allHidden) attachPoints.push(pair[pair.length - 1]); // одна «скрыто» на всю пару
-            else attachPoints.push(...hiddenBlocks); // плейсхолдер после каждого скрытого блока
+            if (allHidden) {
+              attachPoints.push(pair[pair.length - 1]); // одна «скрыто» на всю пару
+            } else {
+              for (let bi = 0; bi < blocks.length; bi++) {
+                if (hiddenBlocks[bi]) attachPoints.push(blocks[bi][blocks[bi].length - 1]);
+              }
+            }
           }
         }
         syncPlaceholders(cell, pair, attachPoints);
+        allMeta.push({
+          cell,
+          pair,
+          name,
+          teachers: M.getPairTeachers(pair),
+          blocks,
+          blockTeachers,
+          hidden: allHidden,
+          hiddenBlocks,
+        });
       }
       updateCellBackground(cell);
     }
+    UI.syncHover(allMeta);
     sendCount(hiddenCount);
   }
 
@@ -316,13 +336,42 @@
     module.exports = C;
   }
 
+  /**
+   * Элемент расширения (класс rh-*) или его потомок: плейсхолдер, кнопка, меню.
+   * Мутации, вызванные расширением, повторный прогон не запускают.
+   * @param {Node|null} node
+   * @returns {boolean}
+   */
+  function isRhOrInside(node) {
+    let cur = node;
+    while (cur && cur.nodeType === 1) {
+      if (M.isRhElement(cur)) return true;
+      cur = cur.parentNode;
+    }
+    return false;
+  }
+
+  /**
+   * Мутация целиком от расширения (все добавленные/удалённые узлы — rh-*)?
+   * @param {MutationRecord} m
+   * @returns {boolean}
+   */
+  function isRhMutation(m) {
+    const nodes = [];
+    if (m.addedNodes) for (const n of m.addedNodes) nodes.push(n);
+    if (m.removedNodes) for (const n of m.removedNodes) nodes.push(n);
+    if (nodes.length === 0) return false;
+    return nodes.every(isRhOrInside);
+  }
+
   // Инициализация — только в браузере (в Node — только экспорт для тестов).
   if (typeof document === 'undefined' || typeof chrome === 'undefined') return;
 
   UI.injectStyles();
 
-  const observer = new MutationObserver(() => {
+  const observer = new MutationObserver((mutations) => {
     if (!settings.enabled) return;
+    if (mutations.every(isRhMutation)) return; // собственные изменения расширения
     clearTimeout(debounceTimer);
     debounceTimer = setTimeout(processCells, 120);
   });

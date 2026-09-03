@@ -29,6 +29,7 @@ function el(tag, attrs = {}, children = []) {
     tagName: String(tag).toUpperCase(),
     style: {},
     children,
+    className: attrs.class || '',
     classList: {
       contains: (c) => (attrs.class || '').split(/\s+/).includes(c),
     },
@@ -138,6 +139,29 @@ function testSplitIgnoresPlaceholder() {
   const pairs = M.splitIntoPairs(cell.children);
   assert.strictEqual(pairs.length, 1);
   assert.strictEqual(pairs[0].length, 2);
+}
+
+function testSplitIgnoresAllRhElements() {
+  // Hover-кнопка и меню расширения (rh-*) тоже не попадают в пары.
+  const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
+  cell.children.push(el('button', { class: 'rh-hover-btn', text: 'Скрыть' }));
+  cell.children.push(el('div', { class: 'rh-menu' }));
+  const pairs = M.splitIntoPairs(cell.children);
+  assert.strictEqual(pairs.length, 1, 'rh-* элементы не создают и не ломают пары');
+  assert.strictEqual(pairs[0].length, 2);
+  assert.strictEqual(M.getPairName(pairs[0]), 'Математика');
+}
+
+function testSplitKeepsStruckElements() {
+  // rh-strike — стиль скрытия на элементах САМОЙ пары, а не UI-элемент.
+  // Зачёркнутая пара не должна выпадать из структуры: иначе её нельзя вернуть
+  // или переключить стиль (снять rh-strike при переходе на placeholder).
+  const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
+  for (const el of cell.children) el.className = 'rh-strike';
+  const pairs = M.splitIntoPairs(cell.children);
+  assert.strictEqual(pairs.length, 1, 'зачёркнутая пара остаётся парой');
+  assert.strictEqual(pairs[0].length, 2);
+  assert.strictEqual(M.getPairName(pairs[0]), 'Математика');
 }
 
 /* ---------- getPairName ---------- */
@@ -345,6 +369,8 @@ const tests = [
   ['splitIntoPairs: ведущий <hr> игнорируется', testSplitHrAtStartIgnored],
   ['splitIntoPairs: 3 пары (2 скрываемые + 1 нет)', testSplitThreePairsTwoHideable],
   ['splitIntoPairs: плейсхолдер игнорируется', testSplitIgnoresPlaceholder],
+  ['splitIntoPairs: все rh-* элементы игнорируются', testSplitIgnoresAllRhElements],
+  ['splitIntoPairs: rh-strike не отбрасывает пару', testSplitKeepsStruckElements],
   ['splitPairIntoBlocks: один преподаватель', testSplitBlocksSingleTeacher],
   ['splitPairIntoBlocks: два преподавателя (<hr> во 2-м блоке)', testSplitBlocksTwoTeachers],
   ['splitPairIntoBlocks: без преподавателей', testSplitBlocksOnlyHeader],

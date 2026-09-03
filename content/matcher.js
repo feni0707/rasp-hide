@@ -32,6 +32,26 @@
   }
 
   /**
+   * Элемент интерфейса расширения: плейсхолдер, hover-кнопка, меню.
+   * В структуру пар не попадают.
+   * ВАЖНО: класс rh-strike — это стиль скрытия на элементах САМОЙ пары,
+   * а не UI-элемент расширения, поэтому такие элементы НЕ отбрасываются:
+   * иначе зачёркнутая пара выпала бы из прогона и её нельзя было бы
+   * вернуть или переключить стиль.
+   * @param {Element|null} el
+   * @returns {boolean}
+   */
+  function isRhElement(el) {
+    if (!el || !el.classList || typeof el.classList.contains !== 'function') return false;
+    const cls = el.className;
+    if (typeof cls !== 'string') return false;
+    const classes = cls.split(/\s+/);
+    return classes.indexOf('rh-placeholder') !== -1 ||
+      classes.some((c) => c.indexOf('rh-hover') === 0) ||
+      classes.some((c) => c.indexOf('rh-menu') === 0);
+  }
+
+  /**
    * Группировка детей клетки на пары.
    * Старт пары — <div> с <b> (или, пока группа не начата, <div> со <span>);
    * <hr> прикрепляется к текущей паре; остальные <div> — в текущую пару.
@@ -42,9 +62,8 @@
     const pairs = [];
     let current = [];
     for (const child of cellChildren) {
-      // Элементы расширения (плейсхолдеры) в структуру пар не попадают.
-      if (child.classList && typeof child.classList.contains === 'function' &&
-          child.classList.contains('rh-placeholder')) continue;
+      // Элементы расширения (плейсхолдеры, hover-кнопки, меню) в пары не попадают.
+      if (isRhElement(child)) continue;
       if (child.tagName === 'HR') {
         if (current.length) current.push(child);
         continue;
@@ -187,6 +206,7 @@
     getPairTeachers,
     getBlockTeacher,
     matchRule,
+    isRhElement,
     isCellFullyHidden,
   };
 

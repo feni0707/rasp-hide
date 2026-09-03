@@ -75,6 +75,8 @@ function makeNode(tag, attrs = {}, children = []) {
     remove() {
       if (this.parentNode) this.parentNode.removeChild(this);
     },
+    addEventListener() {},
+    removeEventListener() {},
     querySelector(sel) {
       const stack = [...this.children];
       while (stack.length) {
@@ -128,6 +130,8 @@ function makeSchedule(cells) {
     _table: table,
     createElement(tag) { return makeNode(tag); },
     getElementById() { return null; },
+    addEventListener() {},
+    removeEventListener() {},
     querySelector(sel) {
       if (sel === '#raspisanie-table') return table;
       return null;
@@ -536,6 +540,78 @@ async function testFullRollback() {
   assert.deepStrictEqual(mock.messages[mock.messages.length - 1], { type: 'off' });
 }
 
+async function testProcessCellsIdempotentHoverButtons() {
+  // Регресс-тест зацикливания MutationObserver: ключ контроллера — стабильный
+  // DOM-узел (pair[0]), а НЕ массив пары (splitIntoPairs создаёт новый массив
+  // каждый прогон). Повторный прогон не должен плодить hover-кнопки/меню.
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+  C.processCells();
+
+  const btns = cell.children.filter((c) => c.classList.contains('rh-hover-btn'));
+  assert.strictEqual(btns.length, 1, 'повторный прогон не создаёт лишние hover-кнопки');
+  const menus = cell.children.filter((c) => c.classList.contains('rh-menu'));
+  assert.strictEqual(menus.length, 1, 'повторный прогон не создаёт лишние меню');
+  const phs = cell.children.filter((c) => c.classList.contains('rh-placeholder'));
+  assert.strictEqual(phs.length, 1, 'плейсхолдер один');
+}
+
+async function testStrikeToPlaceholderRemovesStrike() {
+  // Переключение стиля strike → placeholder: зачёркивание снимается,
+  // пара скрывается по-новому (display:none + плейсхолдер).
+  const mock = makeChromeMock({ style: 'strike', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика')]);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+  assert.ok(cell.children[0].classList.contains('rh-strike'), 'в strike пара зачёркнута');
+
+  mock.state.style = 'placeholder';
+  await C.loadSettings();
+  C.processCells();
+
+  for (const el of cell.children) {
+    if (el.classList.contains('rh-placeholder')) continue;
+    if (el.classList.contains('rh-hover-btn')) continue;
+    if (el.classList.contains('rh-menu')) continue;
+    assert.ok(!el.classList.contains('rh-strike'), 'rh-strike снят после перехода на placeholder');
+  }
+  assert.strictEqual(cell.children[0].style.display, 'none', 'пара скрыта (placeholder)');
+  assert.ok(cell.children.some((c) => c.classList.contains('rh-placeholder')), 'плейсхолдер создан');
+}
+
+async function testRollbackFromStrikeRemovesStrike() {
+  // Глобальный OFF при активном strike: зачёркивание должно сниматься
+  // (раньше не снималось — пара выпадала из splitIntoPairs из-за rh-strike).
+  const mock = makeChromeMock({ style: 'strike', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика')]);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+  assert.ok(cell.children[0].classList.contains('rh-strike'), 'в strike пара зачёркнута');
+
+  mock.state.enabled = false;
+  await C.loadSettings();
+  C.fullRollback();
+
+  for (const el of cell.children) {
+    assert.ok(!el.classList.contains('rh-strike'), 'rh-strike снят при полном откате');
+    assert.strictEqual(el.style.display, '', 'элементы видимы');
+  }
+}
+
 /* ---------- Запуск ---------- */
 
 async function run() {
@@ -559,6 +635,9 @@ async function run() {
     ['processCells: «у всех» скрывает всю пару', testProcessCellsFullHidePairByAllTeachersRule],
     ['processCells: другой преподаватель не скрывает', testProcessCellsKeepsPairForOtherTeacher],
     ['fullRollback: полный откат', testFullRollback],
+    ['processCells: идемпотентность hover-кнопок', testProcessCellsIdempotentHoverButtons],
+    ['переключение стиля: strike → placeholder снимает зачёркивание', testStrikeToPlaceholderRemovesStrike],
+    ['полный откат: strike снимается при OFF', testRollbackFromStrikeRemovesStrike],
   ];
   let failed = 0;
   for (const [name, fn] of tests) {
