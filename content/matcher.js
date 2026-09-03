@@ -32,17 +32,23 @@
   }
 
   /**
-   * Элемент расширения (класс с префиксом rh-): плейсхолдеры, hover-кнопки,
-   * меню. В структуру пар не попадают.
+   * Элемент интерфейса расширения: плейсхолдер, hover-кнопка, меню.
+   * В структуру пар не попадают.
+   * ВАЖНО: класс rh-strike — это стиль скрытия на элементах САМОЙ пары,
+   * а не UI-элемент расширения, поэтому такие элементы НЕ отбрасываются:
+   * иначе зачёркнутая пара выпала бы из прогона и её нельзя было бы
+   * вернуть или переключить стиль.
    * @param {Element|null} el
    * @returns {boolean}
    */
   function isRhElement(el) {
     if (!el || !el.classList || typeof el.classList.contains !== 'function') return false;
-    if (el.classList.contains('rh-placeholder')) return true;
     const cls = el.className;
     if (typeof cls !== 'string') return false;
-    return cls.split(/\s+/).some((c) => c.indexOf('rh-') === 0);
+    const classes = cls.split(/\s+/);
+    return classes.indexOf('rh-placeholder') !== -1 ||
+      classes.some((c) => c.indexOf('rh-hover') === 0) ||
+      classes.some((c) => c.indexOf('rh-menu') === 0);
   }
 
   /**
@@ -200,6 +206,7 @@
     getPairTeachers,
     getBlockTeacher,
     matchRule,
+    isRhElement,
     isCellFullyHidden,
   };
 

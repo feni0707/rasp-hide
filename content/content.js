@@ -345,10 +345,7 @@
   function isRhOrInside(node) {
     let cur = node;
     while (cur && cur.nodeType === 1) {
-      if (cur.classList && typeof cur.classList.contains === 'function' &&
-          cur.className && String(cur.className).split(/\s+/).some((c) => c.indexOf('rh-') === 0)) {
-        return true;
-      }
+      if (M.isRhElement(cur)) return true;
       cur = cur.parentNode;
     }
     return false;
