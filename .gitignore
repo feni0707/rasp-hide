@@ -4,3 +4,5 @@ node_modules/
 .idea/
 .vscode/
 Thumbs.db
+.agents/
+skills-lock.json
