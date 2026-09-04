@@ -9,6 +9,8 @@
  * переключение стиля не теряет «скрыто» и не ломает фон клетки,
  * WeakMap-кэш исходных стилей, MutationObserver (debounce ~120 мс),
  * chrome.storage.onChanged, счётчик скрытых пар → sendMessage.
+ * Прогон и откат защищены от «протухшего» дебаунс-таймера: processCells
+ * молча выходит при выключенном тумблере, fullRollback таймер снимает.
  */
 (function (global) {
   'use strict';
@@ -185,8 +187,12 @@
    * Пара с несколькими преподавателями скрывается поблочно: каждый блок
    * ([Преп N...] после <hr>) проверяется правилом независимо; «шапка» пары
    * скрывается, только когда скрыты ВСЕ её блоки.
+   * При выключенном тумблере не делает ничего: прогон мог быть запланирован
+   * дебаунсом ДО выключения и сработать уже после fullRollback — без этой
+   * проверки «протухший» таймер возвращал бы скрытие и зелёный бейдж.
    */
   function processCells() {
+    if (!settings.enabled) return;
     const table = document.querySelector('#raspisanie-table');
     if (!table) return;
     const cells = table.querySelectorAll('td.cell');
@@ -261,14 +267,19 @@
 
   /**
    * Полный откат при глобальном OFF: удалить rh-*, восстановить стили.
+   * Снимает и запланированный дебаунсом прогон: иначе он сработает уже после
+   * отката и вернёт скрытие при выключенном расширении.
    */
   function fullRollback() {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
     UI.removeAllRhElements();
     const table = document.querySelector('#raspisanie-table');
     if (table) {
       const cells = table.querySelectorAll('td.cell');
       for (const cell of cells) {
         restoreCellStyle(cell);
+        if (cell.classList) cell.classList.remove(UI.CELL_CLASS);
         const pairs = M.splitIntoPairs(cell.children);
         for (const pair of pairs) restorePair(pair, cell);
       }

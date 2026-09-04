@@ -540,6 +540,50 @@ async function testFullRollback() {
   assert.deepStrictEqual(mock.messages[mock.messages.length - 1], { type: 'off' });
 }
 
+// Регресс: «протухший» дебаунс-таймер после выключения тумблера.
+// MutationObserver планирует прогон, пока расширение включено; fullRollback
+// снимает таймер, но даже если прогон всё-таки дойдёт до processCells,
+// при enabled: false он обязан ничего не делать (REQUIREMENTS §3.4).
+async function testProcessCellsDoesNothingWhenDisabled() {
+  const mock = makeChromeMock({ enabled: false, style: 'placeholder', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  for (const el of cell.children) {
+    assert.strictEqual(el.style.display, '', 'при OFF пара не скрывается');
+  }
+  assert.ok(
+    !cell.children.some((c) => c.classList.contains('rh-placeholder')),
+    'при OFF плейсхолдер не появляется'
+  );
+  assert.deepStrictEqual(mock.messages, [], 'при OFF счётчик в SW не уходит');
+}
+
+// Клетка позиционируется классом rh-cell, а не инлайн-стилем: инлайн-запись
+// position протекала в кэш «исходного» стиля и оставалась после отката.
+async function testCellPositionIsClassNotInlineStyle() {
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
+  cell.setAttribute('style', 'background-color: #fff');
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+  assert.ok(cell.classList.contains('rh-cell'), 'клетка помечена классом rh-cell');
+  assert.ok(!cell.style.position, 'инлайн-стиль position не пишется');
+
+  C.fullRollback();
+  assert.ok(!cell.classList.contains('rh-cell'), 'класс снимается при полном откате');
+  assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff', 'стиль клетки исходный');
+}
+
 async function testProcessCellsIdempotentHoverButtons() {
   // Регресс-тест зацикливания MutationObserver: ключ контроллера — стабильный
   // DOM-узел (pair[0]), а НЕ массив пары (splitIntoPairs создаёт новый массив
@@ -635,6 +679,8 @@ async function run() {
     ['processCells: «у всех» скрывает всю пару', testProcessCellsFullHidePairByAllTeachersRule],
     ['processCells: другой преподаватель не скрывает', testProcessCellsKeepsPairForOtherTeacher],
     ['fullRollback: полный откат', testFullRollback],
+    ['processCells: при выключенном тумблере ничего не делает', testProcessCellsDoesNothingWhenDisabled],
+    ['клетка позиционируется классом rh-cell, не инлайн-стилем', testCellPositionIsClassNotInlineStyle],
     ['processCells: идемпотентность hover-кнопок', testProcessCellsIdempotentHoverButtons],
     ['переключение стиля: strike → placeholder снимает зачёркивание', testStrikeToPlaceholderRemovesStrike],
     ['полный откат: strike снимается при OFF', testRollbackFromStrikeRemovesStrike],

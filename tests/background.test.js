@@ -10,13 +10,14 @@ const BG = require('../background.js');
 
 /* ---------- Мок chrome API ---------- */
 
-// Мок storage.sync: хранилище + lastError-семантика.
+// Мок storage.sync: хранилище + lastError с семантикой Chrome (снимается после коллбэка).
 function makeStorage(initial = {}) {
   const store = { ...initial };
   return {
     _store: store,
-    _failNextSet: false,
     sync: {
+      // Флаг живёт на sync — именно его выставляют тесты (storage.sync._failNextSet).
+      _failNextSet: false,
       get(keys, cb) {
         const res = {};
         for (const k of keys) if (k in store) res[k] = store[k];
@@ -24,8 +25,10 @@ function makeStorage(initial = {}) {
       },
       set(obj, cb) {
         if (this._failNextSet) {
+          // Как в Chrome: lastError виден только внутри коллбэка.
           chromeMock.runtime.lastError = new Error('QUOTA_BYTES');
           cb();
+          chromeMock.runtime.lastError = null;
           return;
         }
         Object.assign(store, obj);

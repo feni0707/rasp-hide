@@ -9,6 +9,11 @@
   'use strict';
 
   const STYLE_ID = 'rh-styles';
+  // Класс-контейнер для клетки: кнопка и меню позиционируются внутри td.
+  // Именно класс, а не инлайн-стиль: content.js кэширует атрибут style клетки,
+  // и запись position:relative протекала бы в «исходный» стиль и оставалась
+  // на клетке после полного отката.
+  const CELL_CLASS = 'rh-cell';
   const rhElements = new Set();
   const controllers = new Set();
   const controllerByHeader = new WeakMap(); // заголовок пары (pair[0]) → контроллер.
@@ -42,6 +47,7 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent =
+      '.rh-cell{position:relative;}' +
       '.rh-strike{opacity:.35 !important;text-decoration:line-through !important;}' +
       '.rh-strike a,.rh-strike b{text-decoration:line-through;}' +
       '.rh-placeholder{color:#9ca3af;font-size:12px;padding:4px 0;opacity:.7;user-select:none;}' +
@@ -198,11 +204,15 @@
   }
 
   /**
-   * Сделать клетку позиционированным контейнером (без перезаписи существующих стилей).
+   * Сделать клетку позиционированным контейнером — классом, не инлайн-стилем.
+   * Инлайн-запись position попадала в кэш «исходного» стиля клетки (content.js)
+   * и оставалась после полного отката; класс снимается вместе с rh-* элементами.
    * @param {HTMLElement} cell
    */
   function ensureCellPosition(cell) {
-    if (!cell.style.position) cell.style.position = 'relative';
+    if (cell.classList && typeof cell.classList.add === 'function') {
+      cell.classList.add(CELL_CLASS);
+    }
   }
 
   /**
@@ -477,7 +487,7 @@
     const hoverBtn = registerRhElement(document.createElement('button'));
     hoverBtn.type = 'button';
     hoverBtn.className = 'rh-hover-btn';
-    hoverBtn.textContent = 'Скрыть';
+    hoverBtn.textContent = 'Скрыть ▾'; // тот же текст, что и в showFor
     hoverBtn.addEventListener('click', onBtnClick);
     cell.appendChild(hoverBtn);
 
@@ -750,12 +760,15 @@
       teacher = pm.teachers[0];
     }
     const res = await R.restorePair(pm.name, teacher);
-    hideController(c);
+    // hideController прячет и кнопку, и меню, поэтому вызывается только на
+    // успешной ветке: иначе сообщение об ошибке всплывало бы без своей кнопки.
     if (res.status === 'none') renderStatus(c, 'Не найдено правило для возврата');
     else if (res.status === 'error') renderStatus(c, R.MSG_NOT_SAVED);
+    else hideController(c);
   }
 
   const UI = {
+    CELL_CLASS,
     injectStyles,
     createPlaceholder,
     removePlaceholders,

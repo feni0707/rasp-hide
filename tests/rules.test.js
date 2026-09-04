@@ -9,7 +9,7 @@ const R = require('../lib/rules.js');
 
 /* ---------- Мок chrome.storage.sync ---------- */
 
-// Мок chrome: in-memory storage, lastError при вопросах, флаг сбоя записи.
+// Мок chrome: in-memory storage, lastError с семантикой Chrome, флаг сбоя записи.
 function makeChromeMock(initialRules = []) {
   const state = { rules: JSON.parse(JSON.stringify(initialRules)) };
   let failNextSet = false;
@@ -24,9 +24,12 @@ function makeChromeMock(initialRules = []) {
         },
         set(patch, cb) {
           if (failNextSet) {
+            // Как в Chrome: lastError выставлен на время коллбэка и снимается
+            // рантаймом сразу после возврата — код под тестом его не чистит.
             chrome.runtime.lastError = { message: 'Quota exceeded bytes' };
             failNextSet = false;
             cb();
+            chrome.runtime.lastError = null;
             return;
           }
           for (const k of Object.keys(patch)) state[k] = JSON.parse(JSON.stringify(patch[k]));

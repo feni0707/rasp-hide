@@ -51,13 +51,10 @@
       const patch = {};
       patch[key] = value;
       getChrome().storage.sync.set(patch, () => {
+        // lastError только читаем — снимает его рантайм после возврата
+        // из коллбэка (см. lib/rules.js saveRules).
         const c = getChrome();
-        if (c.runtime && c.runtime.lastError) {
-          c.runtime.lastError = null;
-          resolve(false);
-          return;
-        }
-        resolve(true);
+        resolve(!(c.runtime && c.runtime.lastError));
       });
     });
   }
