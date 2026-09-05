@@ -5,6 +5,7 @@
 'use strict';
 
 const assert = require('assert');
+require('../lib/text.js'); // общая нормализация — грузится первой, как в манифесте
 const R = require('../lib/rules.js');
 
 /* ---------- Мок chrome.storage.sync ---------- */
@@ -68,6 +69,27 @@ function t(name, fn) {
 t('normalize: пробелы и NBSP', () => {
   assert.strictEqual(R.normalize('  АЯ\u00a0д/акад.целей.  '), 'АЯ д/акад.целей.');
   assert.strictEqual(R.normalize(null), '');
+});
+
+// Контракт общей нормализации: rules и matcher обязаны нормализовать
+// одинаково, иначе правило перестанет совпадать с парой молча.
+t('normalize: rules, matcher и lib/text — одна и та же функция', () => {
+  const T = require('../lib/text.js');
+  const M = require('../content/matcher.js');
+  assert.strictEqual(R.normalize, T.normalize, 'rules берёт normalize из lib/text');
+  assert.strictEqual(M.normalize, T.normalize, 'matcher берёт normalize из lib/text');
+  for (const sample of ['  АЯ\u00a0д/акад.  ', 'Иванов\u00a0И.\u00a0И.', '', ' \t\n ']) {
+    assert.strictEqual(R.normalize(sample), M.normalize(sample));
+  }
+});
+
+t('formatRule: подпись правила для меню и сообщений', () => {
+  assert.strictEqual(R.formatRule(rule('Матан', 'Иванов И. И.')), 'Матан — Иванов И. И.');
+  assert.strictEqual(R.formatRule(rule('Матан', null)), 'Матан — все преподаватели');
+  // Пустой преподаватель — то же, что «все» (см. sanitizeRule/isNarrow).
+  assert.strictEqual(R.formatRule(rule('Матан', '  ')), 'Матан — все преподаватели');
+  // Подпись нормализована так же, как ключи правил.
+  assert.strictEqual(R.formatRule(rule(' АЯ\u00a0д/акад. ', null)), 'АЯ д/акад. — все преподаватели');
 });
 
 t('keyOf: одинаковый ключ при разном форматировании', () => {

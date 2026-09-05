@@ -7,6 +7,7 @@
 const assert = require('assert');
 
 // Модули подключаются как в content script: matcher → ui → content.
+require('../lib/text.js'); // общая нормализация — грузится первой, как в манифесте
 global.RASP_HIDE_MATCHER = require('../content/matcher.js');
 global.RASP_HIDE_UI = require('../content/ui.js');
 const M = global.RASP_HIDE_MATCHER;

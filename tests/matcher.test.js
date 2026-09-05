@@ -5,6 +5,7 @@
 'use strict';
 
 const assert = require('assert');
+require('../lib/text.js'); // общая нормализация — грузится первой, как в манифесте
 const M = require('../content/matcher.js');
 
 /* ---------- Утилиты для сборки DOM-like моков ---------- */

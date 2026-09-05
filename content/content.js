@@ -66,47 +66,10 @@
     el.classList.remove('rh-strike');
   }
 
-  /**
-   * Признак элемента расширения (плейсхолдер).
-   * @param {Element|null} el
-   * @returns {boolean}
-   */
-  function isPh(el) {
-    return !!(el && el.classList &&
-      typeof el.classList.contains === 'function' &&
-      el.classList.contains('rh-placeholder'));
-  }
-
-  /**
-   * Индекс элемента среди children клетки.
-   * @param {HTMLElement} cell
-   * @param {Element} el
-   * @returns {number} -1, если не найден.
-   */
-  function childIndex(cell, el) {
-    for (let i = 0; i < cell.children.length; i++) {
-      if (cell.children[i] === el) return i;
-    }
-    return -1;
-  }
-
-  /**
-   * Элементы расширения (плейсхолдеры) в диапазоне пары клетки.
-   * @param {HTMLElement} cell
-   * @param {HTMLElement[]} pair
-   * @returns {HTMLElement[]}
-   */
-  function placeholdersForPair(cell, pair) {
-    const result = [];
-    const start = childIndex(cell, pair[0]);
-    const end = childIndex(cell, pair[pair.length - 1]);
-    if (start < 0 || end < start) return result;
-    const snapshot = Array.prototype.slice.call(cell.children);
-    for (let i = start; i <= end + 1 && i < snapshot.length; i++) {
-      if (isPh(snapshot[i])) result.push(snapshot[i]);
-    }
-    return result;
-  }
+  // Общие с ui.js хелперы по структуре клетки — см. content/matcher.js.
+  const isPh = M.isPlaceholder;
+  const childIndex = M.childIndex;
+  const placeholdersForPair = M.placeholdersForPair;
 
   /**
    * Синхронизация плейсхолдеров пары с местами скрытия (attachPoints).
@@ -333,7 +296,6 @@
     cacheCellStyle,
     restoreCellStyle,
     applyPairStyle,
-    isPh,
     hidePair,
     restorePair,
     syncPlaceholders,

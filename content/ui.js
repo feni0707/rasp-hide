@@ -105,15 +105,6 @@
   }
 
   /**
-   * Удаление только плейсхолдеров (переключение placeholder→strike).
-   */
-  function removePlaceholders() {
-    for (const el of [...rhElements]) {
-      if (el.classList && el.classList.contains('rh-placeholder')) el.remove();
-    }
-  }
-
-  /**
    * Удаление всех элементов расширения (rh-*) — полный откат при глобальном OFF.
    * Ховер-UI полностью выключается.
    */
@@ -123,46 +114,9 @@
     rhElements.clear();
   }
 
-  /**
-   * Признак плейсхолдера.
-   * @param {Element|null} el
-   * @returns {boolean}
-   */
-  function isPh(el) {
-    return !!(el && el.classList &&
-      typeof el.classList.contains === 'function' &&
-      el.classList.contains('rh-placeholder'));
-  }
-
-  /**
-   * Индекс дочернего элемента клетки.
-   * @param {HTMLElement} cell
-   * @param {Element} el
-   * @returns {number} -1, если не найден.
-   */
-  function childIndex(cell, el) {
-    for (let i = 0; i < cell.children.length; i++) {
-      if (cell.children[i] === el) return i;
-    }
-    return -1;
-  }
-
-  /**
-   * Плейсхолдеры пары (в диапазоне её элементов в клетке).
-   * @param {HTMLElement} cell
-   * @param {HTMLElement[]} pair
-   * @returns {HTMLElement[]}
-   */
-  function placeholdersForPair(cell, pair) {
-    const out = [];
-    const start = childIndex(cell, pair[0]);
-    const end = childIndex(cell, pair[pair.length - 1]);
-    if (start < 0 || end < start) return out;
-    for (let i = start; i <= end + 1 && i < cell.children.length; i++) {
-      if (isPh(cell.children[i])) out.push(cell.children[i]);
-    }
-    return out;
-  }
+  // Общие с content.js хелперы по структуре клетки — см. content/matcher.js.
+  const childIndex = M.childIndex;
+  const placeholdersForPair = M.placeholdersForPair;
 
   /**
    * Контекст плейсхолдера: какая пара/блок за ним (для «Вернуть»).
@@ -718,7 +672,7 @@
     for (const r of absorbed) {
       const div = document.createElement('div');
       div.className = 'rh-menu-absorbed';
-      div.textContent = r.subject + (r.teacher ? ' — ' + r.teacher : ' — все преподаватели');
+      div.textContent = R.formatRule(r);
       menu.appendChild(registerRhElement(div));
     }
     addMenuItem(menu, 'Удалить', onConfirm);
@@ -771,7 +725,6 @@
     CELL_CLASS,
     injectStyles,
     createPlaceholder,
-    removePlaceholders,
     removeAllRhElements,
     syncHover,
     destroyAllHover,

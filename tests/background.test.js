@@ -73,49 +73,52 @@ function setup(initialStorage) {
   return { chromeMock, storage };
 }
 
+// Реестр именованных тестов — как в matcher/rules/content: провал называет
+// сценарий и не обрывает остальные проверки, npm test печатает счётчик.
+const TESTS = [];
+function t(name, fn) {
+  TESTS.push([name, fn]);
+}
+
 /* ---------- Тесты ---------- */
 
-// Текст бейджа для счётчика: в т.ч. зелёный «0».
-assert.strictEqual(BG.badgeTextForCount(0), '0');
-assert.strictEqual(BG.badgeTextForCount(7), '7');
-assert.strictEqual(BG.badgeTextForCount(100), '100');
+t('badgeTextForCount: число текстом, в т.ч. зелёный «0»', () => {
+  assert.strictEqual(BG.badgeTextForCount(0), '0');
+  assert.strictEqual(BG.badgeTextForCount(7), '7');
+  assert.strictEqual(BG.badgeTextForCount(100), '100');
+});
 
-// {type:'count'} — зелёная цифра для вкладки-отправителя.
-{
+t('{type:\'count\'} — зелёная цифра для вкладки-отправителя', () => {
   const { chromeMock } = setup();
   chromeMock._listeners.message[0]({ type: 'count', value: 3 }, { tab: { id: 42 } });
   assert.deepStrictEqual(chromeMock._calls.badgeText, [{ tabId: 42, text: '3' }]);
   assert.strictEqual(chromeMock._calls.badgeColor.length, 1);
   assert.strictEqual(chromeMock._calls.badgeColor[0].tabId, 42);
   assert.strictEqual(chromeMock._calls.badgeColor[0].color, '#16a34a');
-}
+});
 
-// {type:'count', value:0} — зелёный «0», не пусто и не OFF.
-{
+t('{type:\'count\', value:0} — зелёный «0», не пусто и не OFF', () => {
   const { chromeMock } = setup();
   chromeMock._listeners.message[0]({ type: 'count', value: 0 }, { tab: { id: 1 } });
   assert.deepStrictEqual(chromeMock._calls.badgeText, [{ tabId: 1, text: '0' }]);
-}
+});
 
-// {type:'off'} — серый «OFF»; текст «ON» не используется.
-{
+t('{type:\'off\'} — серый «OFF»; текст «ON» не используется', () => {
   const { chromeMock } = setup();
   chromeMock._listeners.message[0]({ type: 'off' }, { tab: { id: 5 } });
   assert.deepStrictEqual(chromeMock._calls.badgeText, [{ tabId: 5, text: 'OFF' }]);
   assert.strictEqual(chromeMock._calls.badgeColor[0].color, '#6b7280');
-}
+});
 
-// Сообщение без tab.id (например, из options) — бейдж не трогается.
-{
+t('Сообщение без tab.id (например, из options) — бейдж не трогается', () => {
   const { chromeMock } = setup();
   chromeMock._listeners.message[0]({ type: 'count', value: 3 }, {});
   chromeMock._listeners.message[0](null, { tab: { id: 1 } });
   chromeMock._listeners.message[0]({ type: 'unknown' }, { tab: { id: 1 } });
   assert.strictEqual(chromeMock._calls.badgeText.length, 0);
-}
+});
 
-// Бейдж per-tab: сообщения из разных вкладок не смешиваются.
-{
+t('Бейдж per-tab: сообщения из разных вкладок не смешиваются', () => {
   const { chromeMock } = setup();
   const onMessage = chromeMock._listeners.message[0];
   onMessage({ type: 'count', value: 1 }, { tab: { id: 10 } });
@@ -124,31 +127,27 @@ assert.strictEqual(BG.badgeTextForCount(100), '100');
     { tabId: 10, text: '1' },
     { tabId: 20, text: 'OFF' },
   ]);
-}
+});
 
-// Клик по иконке: enabled:true → false.
-{
+t('Клик по иконке: enabled:true → false', () => {
   const { chromeMock, storage } = setup({ enabled: true, style: 'placeholder', rules: [] });
   chromeMock._listeners.click[0]();
   assert.strictEqual(storage._store.enabled, false);
-}
+});
 
-// Клик по иконке: enabled:false → true.
-{
+t('Клик по иконке: enabled:false → true', () => {
   const { chromeMock, storage } = setup({ enabled: false });
   chromeMock._listeners.click[0]();
   assert.strictEqual(storage._store.enabled, true);
-}
+});
 
-// Клик по иконке: ключа нет (дефолт true) → false.
-{
+t('Клик по иконке: ключа нет (дефолт true) → false', () => {
   const { chromeMock, storage } = setup({});
   chromeMock._listeners.click[0]();
   assert.strictEqual(storage._store.enabled, false);
-}
+});
 
-// onInstalled: пустое хранилище → все дефолты (enabled:true, placeholder, rules:[]).
-{
+t('onInstalled: пустое хранилище → все дефолты (enabled:true, placeholder, rules:[])', () => {
   const { chromeMock, storage } = setup({});
   chromeMock._listeners.installed[0]();
   assert.deepStrictEqual(storage._store, {
@@ -156,10 +155,9 @@ assert.strictEqual(BG.badgeTextForCount(100), '100');
     style: 'placeholder',
     rules: [],
   });
-}
+});
 
-// onInstalled: существующие настройки не перезаписываются.
-{
+t('onInstalled: существующие настройки не перезаписываются', () => {
   const existingRules = [{ subject: 'Физика', teacher: null, enabled: true }];
   const { chromeMock, storage } = setup({
     enabled: false,
@@ -170,50 +168,60 @@ assert.strictEqual(BG.badgeTextForCount(100), '100');
   assert.strictEqual(storage._store.enabled, false);
   assert.strictEqual(storage._store.style, 'strike');
   assert.strictEqual(storage._store.rules, existingRules);
-}
+});
 
-// onInstalled: частичное хранилище → только отсутствующие ключи.
-{
+t('onInstalled: частичное хранилище → только отсутствующие ключи', () => {
   const { chromeMock, storage } = setup({ enabled: false });
   chromeMock._listeners.installed[0]();
   assert.strictEqual(storage._store.enabled, false); // не тронут
   assert.strictEqual(storage._store.style, 'placeholder'); // добавлен
   assert.deepStrictEqual(storage._store.rules, []); // добавлен
-}
+});
 
-// tabs.onUpdated: начало навигации → бейдж вкладки очищается.
-{
+t('tabs.onUpdated: начало навигации → бейдж вкладки очищается', () => {
   const { chromeMock } = setup();
   chromeMock._listeners.tabUpdated[0](7, { status: 'loading' });
   assert.deepStrictEqual(chromeMock._calls.badgeText, [{ tabId: 7, text: '' }]);
   assert.strictEqual(chromeMock._calls.badgeColor.length, 0); // цвет не нужен для очистки
-}
+});
 
-// tabs.onUpdated: прочие события ('complete' и т.п.) — бейдж не трогается.
-{
+t('tabs.onUpdated: прочие события (\'complete\' и т.п.) — бейдж не трогается', () => {
   const { chromeMock } = setup();
   chromeMock._listeners.tabUpdated[0](7, { status: 'complete' });
   chromeMock._listeners.tabUpdated[0](7, {});
   assert.strictEqual(chromeMock._calls.badgeText.length, 0);
-}
+});
 
-// Ошибка записи (lastError) при клике — состояние не меняется, исключений нет.
-{
+t('Ошибка записи (lastError) при клике — состояние не меняется, исключений нет', () => {
   const storage = makeStorage({ enabled: true });
   chromeMock = makeChrome(storage);
   const bg = BG.createBackground(chromeMock);
   storage.sync._failNextSet = true;
   bg.handleActionClick();
   assert.strictEqual(storage._store.enabled, true); // запись не удалась — не изменилось
-}
+});
 
-// init() регистрирует все четыре слушателя.
-{
+t('init() регистрирует все четыре слушателя', () => {
   setup();
   assert.strictEqual(chromeMock._listeners.installed.length, 1);
   assert.strictEqual(chromeMock._listeners.click.length, 1);
   assert.strictEqual(chromeMock._listeners.message.length, 1);
   assert.strictEqual(chromeMock._listeners.tabUpdated.length, 1);
-}
+});
 
-console.log('tests/background.test.js: все проверки пройдены');
+/* ---------- Запуск ---------- */
+
+console.log('background.test.js');
+let failed = 0;
+for (const [name, fn] of TESTS) {
+  try {
+    fn();
+    console.log('  ok - ' + name);
+  } catch (err) {
+    failed++;
+    console.error('  FAIL - ' + name);
+    console.error('    ' + (err && err.message));
+  }
+}
+console.log('\nВсего тестов: ' + TESTS.length + (failed ? ', провалено: ' + failed : ''));
+if (failed) process.exit(1);

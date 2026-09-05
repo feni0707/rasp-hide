@@ -239,10 +239,7 @@
    * @param {object} rule
    */
   function onDeleteRule(rule) {
-    const what = rule.teacher === null
-      ? rule.subject + ' — все преподаватели'
-      : rule.subject + ' — ' + rule.teacher;
-    if (!global.confirm('Удалить правило «' + what + '»?')) return;
+    if (!global.confirm('Удалить правило «' + R.formatRule(rule) + '»?')) return;
     R.removeRule(rule).then(handleMutationResult);
   }
 
@@ -267,10 +264,7 @@
    * @param {object} existing
    */
   function showDuplicateMessage(existing) {
-    const what = existing.teacher === null
-      ? existing.subject + ' — все преподаватели'
-      : existing.subject + ' — ' + existing.teacher;
-    showStatus(R.MSG_DUPLICATE + ': «' + what + '»', [
+    showStatus(R.MSG_DUPLICATE + ': «' + R.formatRule(existing) + '»', [
       { label: 'Включить существующее', onClick: () => { hideStatus(); enableExisting(existing); } },
     ]);
   }
@@ -281,7 +275,7 @@
    */
   function showCoveredMessage(covering) {
     showStatus(
-      R.MSG_COVERED + ' «' + covering.subject + ' — все преподаватели»',
+      R.MSG_COVERED + ' «' + R.formatRule(covering) + '»',
       [{ label: 'Включить существующее', onClick: () => { hideStatus(); enableExisting(covering); } }]
     );
   }
@@ -292,9 +286,7 @@
    * @param {Function} onConfirm - действие при согласии
    */
   function confirmAbsorb(absorbed, onConfirm) {
-    const list = sortRules(absorbed)
-      .map((r) => (r.teacher === null ? r.subject + ' — все' : r.subject + ' — ' + r.teacher))
-      .join('; ');
+    const list = sortRules(absorbed).map(R.formatRule).join('; ');
     showInfoStatus('Также удалятся правила: ' + list, [
       { label: 'Удалить', danger: true, onClick: () => { hideStatus(); onConfirm(); } },
       { label: 'Отмена', onClick: hideStatus },

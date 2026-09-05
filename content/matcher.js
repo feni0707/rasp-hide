@@ -1,22 +1,18 @@
 /**
- * Чистая логика матчинга пар — без зависимостей от chrome/DOM.
- * Принимает DOM-like элементы (NodeList/дети клетки) для тестируемости в Node.
- * Подключается в content script и экспортируется в Node (module.exports) для тестов.
+ * Чистая логика матчинга и структуры клетки — без зависимостей от chrome
+ * и от настоящего DOM API. Принимает DOM-like элементы (NodeList/дети клетки)
+ * для тестируемости в Node. Подключается в content script и экспортируется
+ * в Node (module.exports) для тестов.
+ *
+ * Требует загруженного lib/text.js (в манифесте и options.html он идёт первым).
  */
 (function (global) {
   'use strict';
 
   /** Точное название пары — только видимый span.textContent (без fallback на title). */
 
-  /**
-   * Нормализация текста: trim, схлопывание пробелов и &nbsp;.
-   * @param {string|null|undefined} text
-   * @returns {string}
-   */
-  function normalize(text) {
-    if (text == null) return '';
-    return String(text).replace(/\u00a0/g, ' ').replace(/\s+/g, ' ').trim();
-  }
+  // Общая нормализация: одна на matcher и rules — см. lib/text.js.
+  const normalize = global.RASP_HIDE_TEXT.normalize;
 
   /**
    * Признак старта новой пары: <div> c <b> (тип ЛК/ПР/ЛБ),
@@ -175,14 +171,57 @@
   }
 
   /**
+   * Плейсхолдер «скрыто» расширения.
+   * @param {Element|null} el
+   * @returns {boolean}
+   */
+  function isPlaceholder(el) {
+    return !!(el && el.classList &&
+      typeof el.classList.contains === 'function' &&
+      el.classList.contains('rh-placeholder'));
+  }
+
+  /**
+   * Индекс элемента среди children клетки.
+   * @param {HTMLElement} cell
+   * @param {Element} el
+   * @returns {number} -1, если не найден.
+   */
+  function childIndex(cell, el) {
+    for (let i = 0; i < cell.children.length; i++) {
+      if (cell.children[i] === el) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Плейсхолдеры пары: в диапазоне её элементов плюс одна позиция после
+   * последнего — там стоит «скрыто» полностью скрытой пары.
+   * Список снимается до обхода: вызывающий (syncPlaceholders) удаляет лишние
+   * прямо по ходу, а живой children при этом сдвигается.
+   * @param {HTMLElement} cell
+   * @param {HTMLElement[]} pair
+   * @returns {HTMLElement[]}
+   */
+  function placeholdersForPair(cell, pair) {
+    const result = [];
+    const start = childIndex(cell, pair[0]);
+    const end = childIndex(cell, pair[pair.length - 1]);
+    if (start < 0 || end < start) return result;
+    const snapshot = Array.prototype.slice.call(cell.children);
+    for (let i = start; i <= end + 1 && i < snapshot.length; i++) {
+      if (isPlaceholder(snapshot[i])) result.push(snapshot[i]);
+    }
+    return result;
+  }
+
+  /**
    * Скрыт ли отдельный элемент пары (плейсхолдер или display:none).
    * @param {Element} el
    * @returns {boolean}
    */
   function isElementHidden(el) {
-    if (el.classList && typeof el.classList.contains === 'function') {
-      if (el.classList.contains('rh-placeholder')) return true;
-    }
+    if (isPlaceholder(el)) return true;
     return !!(el.style && el.style.display === 'none');
   }
 
@@ -207,6 +246,9 @@
     getBlockTeacher,
     matchRule,
     isRhElement,
+    isPlaceholder,
+    childIndex,
+    placeholdersForPair,
     isCellFullyHidden,
   };
 
