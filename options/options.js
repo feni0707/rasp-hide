@@ -1,80 +1,30 @@
 /**
- * Страница настроек (фаза 7): тумблер вкл/выкл, radio стиля скрытия,
- * список правил (сортировка по предмету, «все» выше конкретных ФИО,
- * поиск-фильтр, счётчик N/100, лимит 100), добавление вручную,
- * подтверждения (дубликат/поглощение/сброс), обработка ошибок записи,
- * экспорт/импорт правил в JSON, подсказки предметов и ФИО при ручном вводе.
- * Все изменения правил — через общий lib/rules.js (RASP_HIDE_RULES):
- * импорт проходит те же инварианты, что и ручное добавление.
+ * Полная страница настроек: тумблер, вид скрытой пары, список правил
+ * (поиск, счётчик, добавление вручную, сброс), подсказки, экспорт/импорт.
+ *
+ * Часть этого есть и в popup — там то, что нужно часто. Общее не дублируется:
+ * список правил и операции над ним берутся из ui/rules-list.js, блок статуса —
+ * из ui/status.js, оформление — из ui/theme.css. Здесь остаётся только то,
+ * что живёт исключительно на полной странице: перенос правил, сброс и очистка
+ * подсказок.
+ *
+ * Все изменения правил — через lib/rules.js: инварианты набора одинаковы
+ * и для страницы, и для popup, и для меню на самом расписании.
  */
 (function (global) {
   'use strict';
 
   const R = global.RASP_HIDE_RULES;
   const S = global.RASP_HIDE_SUGGESTIONS;
+  const LIST = global.RASP_HIDE_RULES_LIST;
+  const STATUS = global.RASP_HIDE_STATUS;
 
   let rules = [];   // текущий набор правил (последнее известное состояние)
-  let filter = '';  // поисковый фильтр по названию предмета
+  let filter = '';  // поисковый фильтр
 
-  // Часто используемые элементы страницы.
   const el = {};
-
-  /**
-   * Блок статуса: текст + кнопки действий. Их на странице два — у списка
-   * правил и у экспорта/импорта, — поэтому фабрика, а не singleton.
-   * @param {string} rootId
-   * @param {string} textId
-   * @returns {object}
-   */
-  function createStatus(rootId, textId) {
-    const st = {
-      root: null,
-      text: null,
-      buttons: [],
-
-      /** Привязка к DOM (после загрузки страницы). */
-      init() {
-        st.root = document.getElementById(rootId);
-        st.text = document.getElementById(textId);
-        st.buttons = [];
-      },
-
-      /**
-       * @param {string} text
-       * @param {Array<{label: string, onClick: Function, danger?: boolean}>} [actions]
-       * @param {string} [kind] - 'error' (по умолчанию) или 'info'
-       */
-      show(text, actions, kind) {
-        st.text.textContent = text;
-        for (const btn of st.buttons) btn.remove();
-        st.buttons = [];
-        for (const action of actions || []) {
-          const btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'rh-btn rh-btn--sm' + (action.danger ? ' rh-btn--danger' : '');
-          btn.textContent = action.label;
-          btn.addEventListener('click', action.onClick);
-          st.root.appendChild(btn);
-          st.buttons.push(btn);
-        }
-        st.root.classList.toggle('rh-status--error', kind !== 'info');
-        st.root.classList.toggle('rh-status--info', kind === 'info');
-        st.root.hidden = false;
-      },
-
-      /** Скрытие блока. */
-      hide() {
-        st.root.hidden = true;
-        st.text.textContent = '';
-        for (const btn of st.buttons) btn.remove();
-        st.buttons = [];
-      },
-    };
-    return st;
-  }
-
-  const statusEl = createStatus('rh-status', 'rh-status-text');
-  const ioStatus = createStatus('rh-io-status', 'rh-io-status-text');
+  const status = STATUS.createStatus('rh-status', 'rh-status-text');
+  const ioStatus = STATUS.createStatus('rh-io-status', 'rh-io-status-text');
 
   /**
    * Доступ к chrome API (для подмены моками в тестах).
@@ -103,118 +53,23 @@
    * Запись глобальной настройки с обработкой chrome.runtime.lastError.
    * @param {string} key - 'enabled' или 'style'
    * @param {*} value
-   * @returns {Promise<boolean>} false — при ошибке записи («Не удалось сохранить»)
+   * @returns {Promise<boolean>} false — при ошибке записи
    */
   function saveSetting(key, value) {
     return new Promise((resolve) => {
       const patch = {};
       patch[key] = value;
       getChrome().storage.sync.set(patch, () => {
-        // lastError только читаем — снимает его рантайм после возврата
-        // из коллбэка (см. lib/rules.js saveRules).
+        // lastError только читаем — снимает его рантайм (см. lib/rules.js).
         const c = getChrome();
         resolve(!(c.runtime && c.runtime.lastError));
       });
     });
   }
 
-  /**
-   * Сортировка правил: алфавит предмета, «все» выше конкретных ФИО,
-   * затем по алфавиту ФИО.
-   * @param {object[]} list
-   * @returns {object[]} новый отсортированный массив
-   */
-  function sortRules(list) {
-    return [...list].sort((a, b) => {
-      const bySubject = a.subject.localeCompare(b.subject, 'ru');
-      if (bySubject !== 0) return bySubject;
-      if (a.teacher === null && b.teacher !== null) return -1;
-      if (a.teacher !== null && b.teacher === null) return 1;
-      return (a.teacher || '').localeCompare(b.teacher || '', 'ru');
-    });
-  }
+  /* ---------- Список правил ---------- */
 
-  /**
-   * Подходит ли правило под поисковый фильтр (contains по subject).
-   * @param {object} rule
-   * @returns {boolean}
-   */
-  function matchesFilter(rule) {
-    if (!filter) return true;
-    return R.normalize(rule.subject).toLowerCase().indexOf(filter) !== -1;
-  }
-
-  /**
-   * Подпись правила: «все преподаватели» или ФИО.
-   * @param {object} rule
-   * @returns {string}
-   */
-  function teacherLabel(rule) {
-    return rule.teacher === null ? 'все преподаватели' : rule.teacher;
-  }
-
-  /**
-   * Статус у списка правил: ошибка.
-   * @param {string} text
-   * @param {Array<{label: string, onClick: Function, danger?: boolean}>} [actions]
-   */
-  function showStatus(text, actions) {
-    statusEl.show(text, actions, 'error');
-  }
-
-  /**
-   * Статус у списка правил: информация (поглощение и т.п.).
-   * @param {string} text
-   * @param {Array<{label: string, onClick: Function, danger?: boolean}>} [actions]
-   */
-  function showInfoStatus(text, actions) {
-    statusEl.show(text, actions, 'info');
-  }
-
-  /** Скрытие статуса у списка правил. */
-  function hideStatus() {
-    statusEl.hide();
-  }
-
-  /**
-   * Одна строка списка правил.
-   * @param {object} rule
-   * @returns {HTMLElement}
-   */
-  function renderRuleRow(rule) {
-    const row = document.createElement('div');
-    row.className = 'rh-rule' + (rule.enabled ? '' : ' rh-rule--off');
-
-    const checkbox = document.createElement('input');
-    checkbox.type = 'checkbox';
-    checkbox.checked = rule.enabled !== false;
-    checkbox.title = rule.enabled !== false ? 'Выключить правило' : 'Включить правило';
-    checkbox.addEventListener('change', () => onToggleRule(rule, checkbox));
-
-    const subject = document.createElement('span');
-    subject.className = 'rh-rule-subject';
-    subject.textContent = rule.subject;
-
-    const teacher = document.createElement('span');
-    teacher.className = 'rh-rule-teacher';
-    teacher.textContent = teacherLabel(rule);
-
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'rh-btn rh-btn--sm rh-btn--danger';
-    del.textContent = 'Удалить';
-    del.addEventListener('click', () => onDeleteRule(rule));
-
-    row.appendChild(checkbox);
-    row.appendChild(subject);
-    row.appendChild(teacher);
-    row.appendChild(del);
-    return row;
-  }
-
-  /**
-   * Отрисовка списка правил с учётом фильтра и счётчика N/100.
-   */
+  /** Отрисовка списка, счётчика и состояния формы добавления. */
   function renderRules() {
     el.count.textContent = rules.length + '/' + R.MAX_RULES;
     const limitReached = rules.length >= R.MAX_RULES;
@@ -222,24 +77,13 @@
     el.addButton.disabled = limitReached;
     el.subjectInput.disabled = limitReached;
     el.teacherInput.disabled = limitReached;
-
-    el.rulesBox.textContent = '';
-    const sorted = sortRules(rules).filter(matchesFilter);
-    if (sorted.length === 0) {
-      const empty = document.createElement('div');
-      empty.className = 'rh-empty';
-      empty.textContent = rules.length === 0
-        ? 'Правил пока нет. Наведите курсор на пару в расписании или добавьте вручную ниже.'
-        : 'Под фильтр ничего не подошло.';
-      el.rulesBox.appendChild(empty);
-      return;
-    }
-    for (const rule of sorted) el.rulesBox.appendChild(renderRuleRow(rule));
+    LIST.renderList(el.rulesBox, rules, filter, {
+      onToggle: actions.toggle,
+      onDelete: actions.remove,
+    });
   }
 
-  /**
-   * Перезагрузка набора правил из хранилища и перерисовка.
-   */
+  /** Перезагрузка набора правил из хранилища и перерисовка. */
   function refresh() {
     return R.loadRules().then((loaded) => {
       rules = loaded;
@@ -247,157 +91,22 @@
     });
   }
 
-  /**
-   * Вкл/выкл правила через setEnabled с инвариантами (покрытие, поглощение).
-   * @param {object} rule
-   * @param {HTMLInputElement} checkbox
-   */
-  function onToggleRule(rule, checkbox) {
-    const wantEnabled = checkbox.checked;
-    R.setEnabled(rule, wantEnabled).then((res) => {
-      if (res.status === 'absorb') {
-        // Включение широкого правила удаляет узкие — нужно подтверждение.
-        checkbox.checked = false;
-        confirmAbsorb(res.absorbed, () =>
-          R.setEnabled(rule, true, { autoAbsorb: true }).then(handleMutationResult)
-        );
-        return;
-      }
-      if (res.status === 'covered') {
-        checkbox.checked = false;
-        showCoveredMessage(res.covering);
-        return;
-      }
-      handleMutationResult(res);
-    });
-  }
+  const actions = LIST.createActions({ status, onRefresh: refresh });
 
-  /**
-   * Удаление правила — с подтверждением.
-   * @param {object} rule
-   */
-  function onDeleteRule(rule) {
-    if (!global.confirm('Удалить правило «' + R.formatRule(rule) + '»?')) return;
-    R.removeRule(rule).then(handleMutationResult);
-  }
-
-  /**
-   * Кнопка «Включить существующее» при дубликате/покрытии.
-   * @param {object} existing
-   */
-  function enableExisting(existing) {
-    R.setEnabled(existing, true).then((res) => {
-      if (res.status === 'absorb') {
-        confirmAbsorb(res.absorbed, () =>
-          R.setEnabled(existing, true, { autoAbsorb: true }).then(handleMutationResult)
-        );
-        return;
-      }
-      handleMutationResult(res);
-    });
-  }
-
-  /**
-   * Сообщение «Правило уже существует» + [Включить существующее].
-   * @param {object} existing
-   */
-  function showDuplicateMessage(existing) {
-    showStatus(R.MSG_DUPLICATE + ': «' + R.formatRule(existing) + '»', [
-      { label: 'Включить существующее', onClick: () => { hideStatus(); enableExisting(existing); } },
-    ]);
-  }
-
-  /**
-   * Сообщение «Уже покрыто…» + [Включить существующее].
-   * @param {object} covering - включённое правило «у всех»
-   */
-  function showCoveredMessage(covering) {
-    showStatus(
-      R.MSG_COVERED + ' «' + R.formatRule(covering) + '»',
-      [{ label: 'Включить существующее', onClick: () => { hideStatus(); enableExisting(covering); } }]
-    );
-  }
-
-  /**
-   * Подтверждение поглощения: «Также удалится: …» [Удалить] / [Отмена].
-   * @param {object[]} absorbed - удаляемые правила
-   * @param {Function} onConfirm - действие при согласии
-   */
-  function confirmAbsorb(absorbed, onConfirm) {
-    const list = sortRules(absorbed).map(R.formatRule).join('; ');
-    showInfoStatus('Также удалятся правила: ' + list, [
-      { label: 'Удалить', danger: true, onClick: () => { hideStatus(); onConfirm(); } },
-      { label: 'Отмена', onClick: hideStatus },
-    ]);
-  }
-
-  /**
-   * Единая обработка результата изменения набора правил.
-   * @param {object} res - результат addRule/setEnabled/removeRule/resetRules
-   */
-  function handleMutationResult(res) {
-    if (res.status === 'error') {
-      showStatus(res.message || R.MSG_NOT_SAVED); // «Не удалось сохранить»
-      refresh();
+  /** Сброс правил — с подтверждением; тумблер и вид не трогаются. */
+  function onReset() {
+    if (rules.length === 0) {
+      status.show('Правил и так нет.', [], 'info');
       return;
     }
-    if (res.status === 'removed' || res.status === 'reset' ||
-        res.status === 'enabled' || res.status === 'disabled' ||
-        res.status === 'absorbed') {
-      hideStatus();
-    }
-    refresh();
-  }
-
-  /**
-   * Отправка формы добавления правила вручную (все инварианты через addRule).
-   */
-  function onAddSubmit() {
-    const subject = el.subjectInput.value;
-    const teacherRaw = el.teacherInput.value;
-    const teacher = R.normalize(teacherRaw) === '' ? null : R.normalize(teacherRaw);
-
-    R.addRule({ subject, teacher }).then((res) => {
-      switch (res.status) {
-        case 'added':
-          el.subjectInput.value = '';
-          el.teacherInput.value = '';
-          el.subjectInput.focus();
-          hideStatus();
-          break;
-        case 'duplicate':
-          showDuplicateMessage(res.existing);
-          break;
-        case 'covered':
-          showCoveredMessage(res.covering);
-          break;
-        case 'absorb':
-          confirmAbsorb(res.absorbed, () =>
-            R.addRule({ subject, teacher }, { autoAbsorb: true }).then(handleMutationResult)
-          );
-          return; // поля не чистим — после подтверждения правило добавится
-        case 'limit':
-          showStatus('Достигнут лимит ' + R.MAX_RULES + ' правил. Удалите часть правил, чтобы добавить новые.');
-          break;
-        case 'invalid':
-          showStatus('Введите название предмета.');
-          break;
-        default:
-          handleMutationResult(res);
-          return;
-      }
-      renderRules();
-    });
-  }
-
-  /**
-   * Сброс к дефолту: только rules, с подтверждением.
-   */
-  function onReset() {
-    if (!global.confirm(
-      'Удалить все правила? Тумблер и стиль скрытия останутся без изменений.'
-    )) return;
-    R.resetRules().then(handleMutationResult);
+    status.confirm(
+      'Удалить все правила (' + rules.length + ')? Тумблер и вид скрытой пары останутся как есть.',
+      () => R.resetRules().then((res) => {
+        if (res.status === 'error') status.show(res.message || R.MSG_NOT_SAVED);
+        else status.hide();
+        refresh();
+      })
+    );
   }
 
   /* ---------- Подсказки для ручного ввода ---------- */
@@ -424,8 +133,7 @@
     return S.loadSuggestions().then((data) => {
       fillDatalist(el.subjectList, data.subjects);
       fillDatalist(el.teacherList, data.teachers);
-      const total = data.subjects.length + data.teachers.length;
-      el.sugClear.disabled = total === 0;
+      el.sugClear.disabled = data.subjects.length + data.teachers.length === 0;
     });
   }
 
@@ -468,10 +176,12 @@
     return 'Импортировано правил: ' + plan.added.length + removed + skipped + '.';
   }
 
-  /**
-   * Экспорт: файл скачивается через blob-ссылку, сеть не используется.
-   */
+  /** Экспорт: файл формируется через blob-ссылку, сеть не используется. */
   function onExport() {
+    if (rules.length === 0) {
+      ioStatus.show('Нечего выгружать: список правил пуст.', [], 'info');
+      return;
+    }
     const text = R.serializeRules(rules, { exportedAt: new Date().toISOString() });
     const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
     const a = document.createElement('a');
@@ -487,8 +197,7 @@
 
   /**
    * Импорт разобранных правил. Разрушительный (замена набора или поглощение
-   * существующих правил) сначала показывает сводку и требует подтверждения —
-   * тот же инвариант, что и при ручном добавлении.
+   * существующих правил) сначала показывает сводку и требует подтверждения.
    * @param {object[]} incoming
    * @param {boolean} replace
    * @param {boolean} confirmed
@@ -497,17 +206,10 @@
     const currentCount = rules.length;
     R.importRules(incoming, { replace, confirmed }).then((res) => {
       if (res.status === 'confirm') {
-        ioStatus.show(
+        ioStatus.confirm(
           importSummary(res, { phase: 'confirm', replace, currentCount }),
-          [
-            {
-              label: 'Импортировать',
-              danger: true,
-              onClick: () => runImport(incoming, replace, true),
-            },
-            { label: 'Отмена', onClick: () => ioStatus.hide() },
-          ],
-          'info'
+          () => runImport(incoming, replace, true),
+          { label: 'Импортировать' }
         );
         return;
       }
@@ -548,6 +250,8 @@
     reader.readAsText(file);
   }
 
+  /* ---------- Инициализация ---------- */
+
   /**
    * Применение настроек к элементам формы (при загрузке и по onChanged).
    * @param {{enabled: boolean, style: string}} settings
@@ -555,13 +259,9 @@
   function applySettingsToForm(settings) {
     el.enabled.checked = settings.enabled;
     for (const radio of el.styleRadios) radio.checked = radio.value === settings.style;
-    el.enabled.disabled = false;
-    for (const radio of el.styleRadios) radio.disabled = false;
   }
 
-  /**
-   * Инициализация страницы. В тестах (Node) не вызывается.
-   */
+  /** Инициализация страницы. В тестах (Node) не вызывается. */
   function init() {
     el.enabled = document.getElementById('rh-enabled');
     el.styleRadios = Array.prototype.slice.call(
@@ -584,13 +284,13 @@
     el.teacherList = document.getElementById('rh-teachers');
     el.sugClear = document.getElementById('rh-sug-clear');
 
-    statusEl.init();
+    status.init();
     ioStatus.init();
 
     el.enabled.addEventListener('change', () => {
       saveSetting('enabled', el.enabled.checked).then((ok) => {
         if (ok) return;
-        showStatus(R.MSG_NOT_SAVED);
+        status.show(R.MSG_NOT_SAVED);
         loadSettings().then(applySettingsToForm); // откат формы к фактическому значению
       });
     });
@@ -600,8 +300,8 @@
         if (!radio.checked) return;
         saveSetting('style', radio.value).then((ok) => {
           if (ok) return;
-          showStatus(R.MSG_NOT_SAVED);
-          loadSettings().then(applySettingsToForm); // откат формы к фактическому значению
+          status.show(R.MSG_NOT_SAVED);
+          loadSettings().then(applySettingsToForm);
         });
       });
     }
@@ -613,11 +313,14 @@
 
     el.addForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      onAddSubmit();
+      actions.add(el.subjectInput.value, el.teacherInput.value, () => {
+        el.subjectInput.value = '';
+        el.teacherInput.value = '';
+        el.subjectInput.focus();
+      });
     });
 
     el.reset.addEventListener('click', onReset);
-
     el.sugClear.addEventListener('click', () => {
       S.clearSuggestions().then(refreshSuggestions);
     });
@@ -641,20 +344,20 @@
     refreshSuggestions();
 
     getChrome().storage.onChanged.addListener((changes, area) => {
-      // Подсказки копит content script в local — страница расписания могла
-      // открыться уже после того, как настройки были открыты.
+      // Подсказки копит content script в local — расписание могли открыть
+      // уже после того, как настройки были открыты.
       if (area === 'local') {
         if (changes[S.SUGGESTIONS_KEY]) refreshSuggestions();
         return;
       }
-      // Правила могли измениться на странице расписания — обновляем список.
+      // Правила и тумблер могли измениться на странице расписания или в popup.
       if (area !== 'sync') return;
       if (changes.rules) refresh();
-      loadSettings().then(applySettingsToForm);
+      if (changes.enabled || changes.style) loadSettings().then(applySettingsToForm);
     });
   }
 
-  const O = { sortRules, matchesFilter, renderRules, exportFileName, importSummary, init };
+  const O = { exportFileName, importSummary, renderRules, init };
   global.RASP_HIDE_OPTIONS = O;
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = O;

@@ -13,28 +13,38 @@ rasp-hide/
 │   ├── content.js         # Точка входа content script (IIFE)
 │   ├── matcher.js         # Чистая логика: группы пар, точный матчинг, структура клетки (DOM-свободная, тестируемая)
 │   └── ui.js              # Hover-кнопка, мини-меню, плейсхолдер, вернуть
+├── popup/
+│   ├── popup.html         # Окно по клику на иконку — основная поверхность
+│   └── popup.js
 ├── options/
-│   ├── options.html
-│   └── options.js         # Настройки + список правил
+│   ├── options.html       # Полная страница: то же плюс перенос правил и сброс
+│   └── options.js
+├── ui/                    # Общее для popup и options
+│   ├── theme.css          # Токены оформления + компоненты (светлая и тёмная тема)
+│   ├── icons.js           # Инлайновые SVG-иконки
+│   ├── status.js          # Блок статуса и подтверждений
+│   └── rules-list.js      # Список правил и операции над ним
 ├── lib/
 │   ├── text.js            # Общая нормализация текста (одна на matcher и rules)
 │   ├── suggestions.js     # Подсказки предметов и ФИО в chrome.storage.local
 │   └── rules.js           # CRUD правил + инварианты (дубликаты, поглощение) поверх chrome.storage.sync (shared: content/options/background)
 ├── icons/                 # icon16/32/48/128.png
-├── tests/                 # Юнит-тесты (Node, без chrome API): matcher, rules, content, background, options, suggestions
+├── tests/                 # Юнит-тесты (Node, без chrome API): matcher, rules, content, background, options, suggestions, ui, popup
 │   ├── matcher.test.js
 │   ├── rules.test.js
 │   ├── content.test.js
 │   ├── background.test.js
 │   ├── options.test.js
-│   └── suggestions.test.js
+│   ├── suggestions.test.js
+│   ├── ui.test.js
+│   └── popup.test.js
 ├── README.md
 └── LICENSE                # MIT
 ```
 
 `content_scripts`: `js: ["lib/text.js", "content/matcher.js", "lib/rules.js", "lib/suggestions.js", "content/ui.js", "content/content.js"]`, `matches: ["https://ro-rasp.tpu.ru/*"]`, `run_at: document_idle`.
 
-Порядок загрузки значим: `lib/text.js` даёт `normalize` обоим модулям ниже, `lib/rules.js` нужен `content/ui.js` (`RASP_HIDE_RULES`). `options.html` подключает `lib/text.js` и `lib/rules.js` в том же порядке.
+Порядок загрузки значим: `lib/text.js` даёт `normalize` обоим модулям ниже, `lib/rules.js` нужен `content/ui.js` (`RASP_HIDE_RULES`). Страницы расширения (`popup.html`, `options.html`) подключают в том же порядке `lib/text.js` → `lib/rules.js` → `lib/suggestions.js` → `ui/icons.js` → `ui/status.js` → `ui/rules-list.js` → скрипт страницы.
 
 ## 2. Доменная модель
 
@@ -127,7 +137,10 @@ DOM-свободные функции (принимают NodeList/DOM-like ин
 
 ## 4. Background (service worker)
 
-- `chrome.action.onClicked` — инверсия `enabled` в storage.
+- `chrome.action.onClicked` **не** подписывается: у действия есть `default_popup`,
+  и клик уходит окну. Тумблер живёт в popup и в команде `toggle-hiding`
+  (`chrome.commands.onCommand`, по умолчанию `Alt+Shift+H`). `commands` — ключ
+  манифеста, не разрешение: `permissions` остаётся `["storage"]`.
 - Бейдж — per-tab (`chrome.action.setBadgeText({ tabId, text })`), право `tabs` не требуется:
   - `{type:'count', value}` от content script → зелёная цифра (в т.ч. «0») для `sender.tab.id`;
   - `{type:'off'}` → серый «OFF» для `sender.tab.id`;
@@ -136,9 +149,26 @@ DOM-свободные функции (принимают NodeList/DOM-like ин
 - `chrome.runtime.onMessage` — только приём `{count|off}`.
 - Никакой сети. `onInstalled` — инициализация дефолтных настроек, если их нет.
 
+## 4a. Popup
+
+Основная поверхность: тумблер, состояние текущей вкладки, список правил с поиском,
+добавление вручную (раскрывается по кнопке), вид скрытой пары, переход на полную
+страницу настроек.
+
+- Состояние вкладки берётся из текста бейджа (`chrome.action.getBadgeText` для
+  `tabs.query({active:true,currentWindow:true})`): это ровно тот счётчик, который
+  уже прислал content script, и читается он без права `tabs`. Чистая функция
+  `pageStateText(enabled, badge)` собирает законченную фразу.
+- Раскладка: шапка и подвал закреплены, прокручивается только середина. Тогда
+  закреплённые полосы физически не могут перекрыть элемент в фокусе
+  (WCAG 2.2 «focus not obscured»).
+- Поиск показывается, только когда правил больше пяти.
+- Escape закрывает раскрытую форму добавления, а не окно.
+
 ## 5. Options
 
-- Форма: тумблер, radio стиля, список правил (subject + teacher/«все» + enabled + delete), добавление вручную, сброс к дефолту.
+- Полная страница: то же, что в popup, плюс экспорт/импорт, сброс правил и очистка подсказок — редкие операции, которым нужно место.
+- Список правил, операции над ним и блок статуса — общие с popup модули (`ui/rules-list.js`, `ui/status.js`); оформление — `ui/theme.css`. Дублировать их между двумя поверхностями нельзя: инварианты набора обязаны совпадать.
 - Список: сортировка (алфавит предмета, «все» выше конкретных ФИО), поиск-фильтр по subject, счётчик «N/100» (при 100 добавление блокируется).
 - Добавление вручную: свободный ввод ФИО + подсказка «введите ФИО точно как в расписании» (автокомплит — кандидат в v2).
 - Все записи — через общий `lib/rules.js` (единый формат, валидация, дубликаты/поглощение, обработка `lastError`).
@@ -147,7 +177,8 @@ DOM-свободные функции (принимают NodeList/DOM-like ин
 - Импорт проводит каждое правило файла через тот же `planAdd`, что и ручное добавление (`planImport` — чистая функция), поэтому инварианты набора те же. Разрушительный импорт (замена набора или поглощение существующих правил) требует подтверждения: `importRules` без `confirmed: true` возвращает `status: 'confirm'` со сводкой — та же схема, что `addRule` с `autoAbsorb`. Не помещающийся в лимит импорт отклоняется целиком (`status: 'limit'`, `fits`), а не выполняется наполовину.
 - Два независимых блока статуса (список правил и экспорт/импорт) — общая фабрика `createStatus`.
 - Подсказки при ручном вводе: два `<datalist>`, наполняются из `chrome.storage.local` (`lib/suggestions.js`); обновляются по `storage.onChanged` с `area === 'local'` — расписание могли открыть уже после настроек. Кнопка «Очистить подсказки» обнуляет оба списка.
-- Тёмная тема: цвета вынесены в CSS-переменные, тёмный набор переопределяет их по `prefers-color-scheme`; отдельного переключателя нет — страница следует теме системы. `color-scheme: light dark` нужен, чтобы штатные контролы (чекбоксы, радио, диалог выбора файла) тоже стали тёмными. Тесты проверяют, что тёмный набор переопределяет ровно те же переменные, что светлый, и что контраст текста в обеих темах не ниже порога.
+- Тёмная тема и все прочие цвета — токены в `ui/theme.css`; тёмный набор переопределяет их по `prefers-color-scheme`, отдельного переключателя нет. `color-scheme: light dark` нужен, чтобы штатные контролы (чекбоксы, радио, диалог выбора файла) тоже стали тёмными.
+- `tests/ui.test.js` проверяет то, что глазами не увидишь: тёмный набор переопределяет ровно те же переменные, что светлый; все использованные переменные объявлены; цвета не захардкожены мимо переменных; контраст в обеих темах не ниже порога; `[hidden]` перебивает `display:flex`; кольцо фокуса нигде не снято без замены; каждое поле подписано; кнопка-иконка имеет `aria-label`; в разметке нет эмодзи вместо иконок.
 
 ## 6. Тестируемость
 

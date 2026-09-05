@@ -1,9 +1,15 @@
 /**
- * Background service worker: тумблер по клику иконки, per-tab бейдж
- * (зелёная цифра-счётчик, в т.ч. «0»; серый «OFF» при выключении),
- * очистка бейджа вкладки при навигации, дефолтные настройки при установке.
+ * Background service worker: per-tab бейдж (зелёная цифра-счётчик, в т.ч. «0»;
+ * серый «OFF» при выключении), очистка бейджа вкладки при навигации,
+ * дефолтные настройки при установке, тумблер по горячей клавише.
  * Текст «ON» не используется — цвет и цифра его заменяют.
  * Права «tabs» не нужны: setBadgeText({tabId}) и tabs.onUpdated работают без него.
+ *
+ * Клик по иконке открывает popup, поэтому chrome.action.onClicked больше
+ * не срабатывает: тумблер переехал в popup, а одним движением он доступен
+ * по горячей клавише (команда toggle-hiding, по умолчанию Alt+Shift+H —
+ * пользователь может переназначить её на chrome://extensions/shortcuts).
+ * Команды не требуют разрешения в permissions: это ключ манифеста.
  */
 (function (global) {
   'use strict';
@@ -76,10 +82,10 @@
     }
 
     /**
-     * Клик по иконке — инверсия тумблера enabled в storage.sync.
+     * Инверсия тумблера enabled в storage.sync (горячая клавиша).
      * Дальше вкладки сами применяют/откатывают изменения и чинят свой бейдж.
      */
-    function handleActionClick() {
+    function toggleEnabled() {
       api.storage.sync.get(['enabled'], (res) => {
         if (api.runtime.lastError) return; // хранилище недоступно — инвертировать нечего
         const enabled = !!res && res.enabled !== false;
@@ -108,16 +114,27 @@
     }
 
     /**
+     * Горячая клавиша: единственная команда расширения — тумблер.
+     * @param {string} command
+     */
+    function handleCommand(command) {
+      if (command === 'toggle-hiding') toggleEnabled();
+    }
+
+    /**
      * Регистрация слушателей (один раз при старте SW).
+     * onClicked не подписываем: у действия есть popup, и клик уходит ему.
      */
     function init() {
       api.runtime.onInstalled.addListener(initDefaults);
-      api.action.onClicked.addListener(handleActionClick);
       api.runtime.onMessage.addListener(handleMessage);
       api.tabs.onUpdated.addListener(handleTabUpdated);
+      if (api.commands && api.commands.onCommand) {
+        api.commands.onCommand.addListener(handleCommand);
+      }
     }
 
-    return { init, handleMessage, handleTabUpdated, handleActionClick, initDefaults };
+    return { init, handleMessage, handleTabUpdated, handleCommand, toggleEnabled, initDefaults };
   }
 
   // Экспорт для тестов (Node); в SW — инициализация на реальном chrome.

@@ -6,6 +6,7 @@
   "permissions": ["storage"],
   "action": {
     "default_title": "Rasp Hide",
+    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -15,6 +16,12 @@
   },
   "background": {
     "service_worker": "background.js"
+  },
+  "commands": {
+    "toggle-hiding": {
+      "suggested_key": { "default": "Alt+Shift+H" },
+      "description": "Включить или выключить скрытие пар"
+    }
   },
   "content_scripts": [
     {

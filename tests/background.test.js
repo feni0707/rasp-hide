@@ -43,14 +43,14 @@ let chromeMock;
 
 function makeChrome(storage) {
   const calls = { badgeText: [], badgeColor: [] };
-  const listeners = { installed: [], click: [], message: [], tabUpdated: [] };
+  const listeners = { installed: [], command: [], message: [], tabUpdated: [] };
   const mock = {
     _calls: calls,
     _listeners: listeners,
     action: {
       setBadgeText: (opts) => calls.badgeText.push(opts),
       setBadgeBackgroundColor: (opts) => calls.badgeColor.push(opts),
-      onClicked: { addListener: (fn) => listeners.click.push(fn) },
+      // onClicked не подписывается: у действия есть popup, клик уходит ему.
     },
     storage,
     runtime: {
@@ -60,6 +60,9 @@ function makeChrome(storage) {
     },
     tabs: {
       onUpdated: { addListener: (fn) => listeners.tabUpdated.push(fn) },
+    },
+    commands: {
+      onCommand: { addListener: (fn) => listeners.command.push(fn) },
     },
   };
   return mock;
@@ -129,21 +132,21 @@ t('Бейдж per-tab: сообщения из разных вкладок не 
   ]);
 });
 
-t('Клик по иконке: enabled:true → false', () => {
+t('Горячая клавиша: enabled:true → false', () => {
   const { chromeMock, storage } = setup({ enabled: true, style: 'placeholder', rules: [] });
-  chromeMock._listeners.click[0]();
+  chromeMock._listeners.command[0]('toggle-hiding');
   assert.strictEqual(storage._store.enabled, false);
 });
 
-t('Клик по иконке: enabled:false → true', () => {
+t('Горячая клавиша: enabled:false → true', () => {
   const { chromeMock, storage } = setup({ enabled: false });
-  chromeMock._listeners.click[0]();
+  chromeMock._listeners.command[0]('toggle-hiding');
   assert.strictEqual(storage._store.enabled, true);
 });
 
-t('Клик по иконке: ключа нет (дефолт true) → false', () => {
+t('Горячая клавиша: ключа нет (дефолт true) → false', () => {
   const { chromeMock, storage } = setup({});
-  chromeMock._listeners.click[0]();
+  chromeMock._listeners.command[0]('toggle-hiding');
   assert.strictEqual(storage._store.enabled, false);
 });
 
@@ -197,16 +200,32 @@ t('Ошибка записи (lastError) при клике — состояни�
   chromeMock = makeChrome(storage);
   const bg = BG.createBackground(chromeMock);
   storage.sync._failNextSet = true;
-  bg.handleActionClick();
+  bg.toggleEnabled();
   assert.strictEqual(storage._store.enabled, true); // запись не удалась — не изменилось
 });
 
 t('init() регистрирует все четыре слушателя', () => {
   setup();
   assert.strictEqual(chromeMock._listeners.installed.length, 1);
-  assert.strictEqual(chromeMock._listeners.click.length, 1);
   assert.strictEqual(chromeMock._listeners.message.length, 1);
   assert.strictEqual(chromeMock._listeners.tabUpdated.length, 1);
+  assert.strictEqual(chromeMock._listeners.command.length, 1);
+});
+
+// Чужая команда тумблер не трогает.
+t('handleCommand: неизвестная команда игнорируется', () => {
+  const { chromeMock, storage } = setup({ enabled: true });
+  chromeMock._listeners.command[0]('что-то-другое');
+  assert.strictEqual(storage._store.enabled, true);
+});
+
+// Старые сборки Chrome могут не отдать chrome.commands — init не должен падать.
+t('init() без chrome.commands не падает', () => {
+  const storage = makeStorage({});
+  chromeMock = makeChrome(storage);
+  delete chromeMock.commands;
+  BG.createBackground(chromeMock).init();
+  assert.strictEqual(chromeMock._listeners.message.length, 1);
 });
 
 /* ---------- Запуск ---------- */

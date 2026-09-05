@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <title>Rasp Hide</title>
+  <link rel="stylesheet" href="../ui/theme.css">
+  <style>
+    /* Раскладка окна: шапка и подвал закреплены, список прокручивается сам.
+       Прокрутка только у середины — тогда закреплённые полосы физически
+       не могут перекрыть элемент в фокусе (WCAG 2.2 «focus not obscured»). */
+    body{width:380px;background:var(--rh-surface);}
+    .rh-pop{display:flex;flex-direction:column;max-height:560px;}
+
+    .rh-pop-head{
+      flex:none;padding:var(--rh-s3) var(--rh-s4);
+      border-bottom:1px solid var(--rh-border);
+    }
+    .rh-pop-title{display:flex;align-items:center;gap:var(--rh-s2);color:var(--rh-accent-text);}
+    .rh-pop-title h1{color:var(--rh-text);}
+    .rh-pagestate{margin:var(--rh-s2) 0 0;font-size:12px;color:var(--rh-muted);}
+    .rh-pagestate b{color:var(--rh-text);font-variant-numeric:tabular-nums;}
+
+    .rh-pop-body{
+      flex:1;min-height:0;overflow-y:auto;
+      padding:var(--rh-s3) var(--rh-s4) var(--rh-s4);
+      display:flex;flex-direction:column;gap:var(--rh-s3);
+    }
+
+    .rh-pop-foot{
+      flex:none;display:flex;align-items:center;justify-content:space-between;
+      gap:var(--rh-s2);
+      padding:var(--rh-s2) var(--rh-s3);
+      border-top:1px solid var(--rh-border);
+      background:var(--rh-surface-2);
+    }
+    .rh-foot-label{font-size:12px;color:var(--rh-muted);}
+
+    .rh-add-form{display:flex;flex-direction:column;gap:var(--rh-s2);}
+    .rh-sec{display:flex;flex-direction:column;gap:var(--rh-s2);}
+  </style>
+</head>
+<body>
+  <div class="rh-pop">
+
+    <header class="rh-pop-head">
+      <div class="rh-between">
+        <span class="rh-pop-title">
+          <svg class="rh-i rh-i--lg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M2.5 12S5.5 5.5 12 5.5c1.6 0 3 .4 4.2 1"/>
+            <path d="M19.4 8.6c1.4 1.6 2.1 3.4 2.1 3.4S18.5 18.5 12 18.5c-1.9 0-3.5-.55-4.8-1.3"/>
+            <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>
+            <path d="M4 20 20 4"/>
+          </svg>
+          <h1>Rasp Hide</h1>
+        </span>
+
+        <label class="rh-switch" for="rh-enabled">
+          <span class="rh-sr-only">Скрывать пары по правилам</span>
+          <input type="checkbox" id="rh-enabled">
+          <span class="rh-switch-track" aria-hidden="true"><span class="rh-switch-thumb"></span></span>
+        </label>
+      </div>
+
+      <p class="rh-pagestate" id="rh-page-state">Загрузка…</p>
+    </header>
+
+    <main class="rh-pop-body">
+      <div class="rh-status" id="rh-status" role="status" aria-live="polite" hidden>
+        <span class="rh-status-text" id="rh-status-text"></span>
+      </div>
+
+      <section class="rh-sec">
+        <div class="rh-between">
+          <h2>Правила</h2>
+          <span class="rh-count" id="rh-count">0/100</span>
+        </div>
+
+        <div class="rh-search" id="rh-search-box" hidden>
+          <svg class="rh-i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"/><path d="M16 16l4.5 4.5"/>
+          </svg>
+          <label class="rh-sr-only" for="rh-search">Поиск по предмету или преподавателю</label>
+          <input type="search" class="rh-input" id="rh-search"
+            placeholder="Поиск по предмету или ФИО" autocomplete="off">
+        </div>
+
+        <div class="rh-rules" id="rh-rules"></div>
+
+        <button type="button" class="rh-btn rh-btn--ghost" id="rh-add-open">
+          <svg class="rh-i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 5v14"/><path d="M5 12h14"/>
+          </svg>
+          <span>Добавить правило</span>
+        </button>
+
+        <form class="rh-add-form" id="rh-add" autocomplete="off" hidden>
+          <div class="rh-field">
+            <label class="rh-field-label" for="rh-subject">Название предмета</label>
+            <input type="text" class="rh-input" id="rh-subject" list="rh-subjects"
+              placeholder="как в расписании">
+          </div>
+          <div class="rh-field">
+            <label class="rh-field-label" for="rh-teacher">Преподаватель</label>
+            <input type="text" class="rh-input" id="rh-teacher" list="rh-teachers"
+              placeholder="пусто — у всех преподавателей">
+          </div>
+          <p class="rh-hint" id="rh-add-hint">
+            Название и ФИО должны совпадать с расписанием буква в букву.
+          </p>
+          <div class="rh-row">
+            <button type="submit" class="rh-btn rh-btn--primary" id="rh-add-btn">Добавить</button>
+            <button type="button" class="rh-btn" id="rh-add-cancel">Отмена</button>
+          </div>
+        </form>
+
+        <datalist id="rh-subjects"></datalist>
+        <datalist id="rh-teachers"></datalist>
+      </section>
+    </main>
+
+    <footer class="rh-pop-foot">
+      <div class="rh-row">
+        <span class="rh-foot-label" id="rh-style-label">Вид</span>
+        <div class="rh-seg" role="group" aria-labelledby="rh-style-label">
+          <input type="radio" name="rh-style" id="rh-style-placeholder" value="placeholder">
+          <label class="rh-seg-item" for="rh-style-placeholder">Плейсхолдер</label>
+          <input type="radio" name="rh-style" id="rh-style-strike" value="strike">
+          <label class="rh-seg-item" for="rh-style-strike">Зачеркнуть</label>
+        </div>
+      </div>
+
+      <button type="button" class="rh-btn rh-btn--icon" id="rh-options"
+        aria-label="Открыть все настройки" title="Все настройки">
+        <svg class="rh-i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4Z"/>
+          <path d="M19.4 12c0 .5-.05 1-.14 1.45l1.83 1.4-1.9 3.3-2.16-.86a7.5 7.5 0 0 1-2.5 1.45L14 21h-4l-.53-2.26a7.5 7.5 0 0 1-2.5-1.45l-2.16.86-1.9-3.3 1.83-1.4a7.6 7.6 0 0 1 0-2.9l-1.83-1.4 1.9-3.3 2.16.86a7.5 7.5 0 0 1 2.5-1.45L10 3h4l.53 2.26a7.5 7.5 0 0 1 2.5 1.45l2.16-.86 1.9 3.3-1.83 1.4c.09.45.14.94.14 1.45Z"/>
+        </svg>
+      </button>
+    </footer>
+
+  </div>
+
+  <script src="../lib/text.js"></script>
+  <script src="../lib/rules.js"></script>
+  <script src="../lib/suggestions.js"></script>
+  <script src="../ui/icons.js"></script>
+  <script src="../ui/status.js"></script>
+  <script src="../ui/rules-list.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
