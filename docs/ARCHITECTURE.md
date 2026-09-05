@@ -18,19 +18,21 @@ rasp-hide/
 │   └── options.js         # Настройки + список правил
 ├── lib/
 │   ├── text.js            # Общая нормализация текста (одна на matcher и rules)
+│   ├── suggestions.js     # Подсказки предметов и ФИО в chrome.storage.local
 │   └── rules.js           # CRUD правил + инварианты (дубликаты, поглощение) поверх chrome.storage.sync (shared: content/options/background)
 ├── icons/                 # icon16/32/48/128.png
-├── tests/                 # Юнит-тесты (Node, без chrome API): matcher, rules, content, background, options
+├── tests/                 # Юнит-тесты (Node, без chrome API): matcher, rules, content, background, options, suggestions
 │   ├── matcher.test.js
 │   ├── rules.test.js
 │   ├── content.test.js
 │   ├── background.test.js
-│   └── options.test.js
+│   ├── options.test.js
+│   └── suggestions.test.js
 ├── README.md
 └── LICENSE                # MIT
 ```
 
-`content_scripts`: `js: ["lib/text.js", "content/matcher.js", "lib/rules.js", "content/ui.js", "content/content.js"]`, `matches: ["https://ro-rasp.tpu.ru/*"]`, `run_at: document_idle`.
+`content_scripts`: `js: ["lib/text.js", "content/matcher.js", "lib/rules.js", "lib/suggestions.js", "content/ui.js", "content/content.js"]`, `matches: ["https://ro-rasp.tpu.ru/*"]`, `run_at: document_idle`.
 
 Порядок загрузки значим: `lib/text.js` даёт `normalize` обоим модулям ниже, `lib/rules.js` нужен `content/ui.js` (`RASP_HIDE_RULES`). `options.html` подключает `lib/text.js` и `lib/rules.js` в том же порядке.
 
@@ -52,6 +54,10 @@ interface Settings {
 
 Хранение: `chrome.storage.sync` (ключи `enabled`, `style`, `rules`).
 Дефолт: `enabled: true`, `style: 'placeholder'`, `rules: []`.
+
+Отдельно — `chrome.storage.local`, ключ `suggestions`: `{ subjects: string[], teachers: string[] }`.
+Это кэш увиденного на страницах расписания для подсказок при ручном вводе, а не настройка:
+поэтому `local` (не переносится между устройствами) и отдельный модуль `lib/suggestions.js`.
 
 Инварианты набора правил (поддерживает `lib/rules.js`, едины для hover и options):
 
@@ -105,6 +111,7 @@ DOM-свободные функции (принимают NodeList/DOM-like ин
 - `MutationObserver` на `document.body` (childList + subtree) с дебаунсом ~120 мс — повторное применение при перерисовке/расшифровке.
 - `chrome.storage.onChanged` → переприменение без полной перезагрузки; при `enabled: false` — полный откат (см. 3.4) и `{type:'off'}` в SW.
 - Счётчик скрытых пар текущей страницы (скрытые блоки/пары) → `chrome.runtime.sendMessage({type:'count', value})` (в SW для бейджа).
+- Названия пар и ФИО из прогона запоминаются в `chrome.storage.local` для подсказок в настройках (`lib/suggestions.js`); запись — только при реальном изменении набора, ошибки записи молчаливы (это удобство, а не данные пользователя). При выключенном тумблере прогона нет — и сбора нет.
 
 ### 3.4. Полный откат (глобальный OFF)
 
@@ -139,6 +146,8 @@ DOM-свободные функции (принимают NodeList/DOM-like ин
 - Экспорт/импорт правил (JSON): выгрузка — `Blob` + `URL.createObjectURL` + `<a download>`, целиком в браузере (ни сети, ни права `downloads`); загрузка — `<input type="file">` + `FileReader`. В файл попадают только правила: тумблер и стиль — нет.
 - Импорт проводит каждое правило файла через тот же `planAdd`, что и ручное добавление (`planImport` — чистая функция), поэтому инварианты набора те же. Разрушительный импорт (замена набора или поглощение существующих правил) требует подтверждения: `importRules` без `confirmed: true` возвращает `status: 'confirm'` со сводкой — та же схема, что `addRule` с `autoAbsorb`. Не помещающийся в лимит импорт отклоняется целиком (`status: 'limit'`, `fits`), а не выполняется наполовину.
 - Два независимых блока статуса (список правил и экспорт/импорт) — общая фабрика `createStatus`.
+- Подсказки при ручном вводе: два `<datalist>`, наполняются из `chrome.storage.local` (`lib/suggestions.js`); обновляются по `storage.onChanged` с `area === 'local'` — расписание могли открыть уже после настроек. Кнопка «Очистить подсказки» обнуляет оба списка.
+- Тёмная тема: цвета вынесены в CSS-переменные, тёмный набор переопределяет их по `prefers-color-scheme`; отдельного переключателя нет — страница следует теме системы. `color-scheme: light dark` нужен, чтобы штатные контролы (чекбоксы, радио, диалог выбора файла) тоже стали тёмными. Тесты проверяют, что тёмный набор переопределяет ровно те же переменные, что светлый, и что контраст текста в обеих темах не ниже порога.
 
 ## 6. Тестируемость
 

@@ -8,7 +8,8 @@
  * strike-прогон (MutationObserver/debounce) их не уничтожает, поэтому
  * переключение стиля не теряет «скрыто» и не ломает фон клетки,
  * WeakMap-кэш исходных стилей, MutationObserver (debounce ~120 мс),
- * chrome.storage.onChanged, счётчик скрытых пар → sendMessage.
+ * chrome.storage.onChanged, счётчик скрытых пар → sendMessage,
+ * сбор подсказок (названия/ФИО) для настроек в chrome.storage.local.
  * Прогон и откат защищены от «протухшего» дебаунс-таймера: processCells
  * молча выходит при выключенном тумблере, fullRollback таймер снимает.
  */
@@ -17,6 +18,7 @@
 
   const M = global.RASP_HIDE_MATCHER;
   const UI = global.RASP_HIDE_UI;
+  const SUG = global.RASP_HIDE_SUGGESTIONS;
 
   const originalCellStyles = new WeakMap();
   let settings = { enabled: true, style: 'placeholder', rules: [] };
@@ -226,6 +228,27 @@
     }
     UI.syncHover(allMeta);
     sendCount(hiddenCount);
+    rememberSuggestions(allMeta);
+  }
+
+  /**
+   * Запоминание увиденных названий и ФИО для подсказок в настройках
+   * (chrome.storage.local, наружу не уходит). Пишется только при изменении:
+   * прогон идёт по дебаунсу и не должен дёргать хранилище на каждую
+   * перерисовку таблицы.
+   * @param {object[]} allMeta - метаданные пар текущей страницы
+   */
+  function rememberSuggestions(allMeta) {
+    if (!SUG) return;
+    const subjects = [];
+    const teachers = [];
+    for (const pm of allMeta) {
+      if (pm.name) subjects.push(pm.name);
+      for (const t of pm.teachers) teachers.push(t);
+    }
+    if (!subjects.length && !teachers.length) return;
+    // Ошибки записи подсказок молчаливы: это удобство, а не данные пользователя.
+    SUG.addSuggestions({ subjects, teachers }).catch(() => {});
   }
 
   /**

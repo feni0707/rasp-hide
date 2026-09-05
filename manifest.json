@@ -23,6 +23,7 @@
         "lib/text.js",
         "content/matcher.js",
         "lib/rules.js",
+        "lib/suggestions.js",
         "content/ui.js",
         "content/content.js"
       ],

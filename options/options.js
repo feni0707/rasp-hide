@@ -3,7 +3,7 @@
  * список правил (сортировка по предмету, «все» выше конкретных ФИО,
  * поиск-фильтр, счётчик N/100, лимит 100), добавление вручную,
  * подтверждения (дубликат/поглощение/сброс), обработка ошибок записи,
- * экспорт/импорт правил в JSON.
+ * экспорт/импорт правил в JSON, подсказки предметов и ФИО при ручном вводе.
  * Все изменения правил — через общий lib/rules.js (RASP_HIDE_RULES):
  * импорт проходит те же инварианты, что и ручное добавление.
  */
@@ -11,6 +11,7 @@
   'use strict';
 
   const R = global.RASP_HIDE_RULES;
+  const S = global.RASP_HIDE_SUGGESTIONS;
 
   let rules = [];   // текущий набор правил (последнее известное состояние)
   let filter = '';  // поисковый фильтр по названию предмета
@@ -399,6 +400,35 @@
     R.resetRules().then(handleMutationResult);
   }
 
+  /* ---------- Подсказки для ручного ввода ---------- */
+
+  /**
+   * Заполнение <datalist> значениями.
+   * @param {HTMLDataListElement} list
+   * @param {string[]} values
+   */
+  function fillDatalist(list, values) {
+    list.textContent = '';
+    for (const value of values) {
+      const option = document.createElement('option');
+      option.value = value;
+      list.appendChild(option);
+    }
+  }
+
+  /**
+   * Перечитывание подсказок из chrome.storage.local и перерисовка списков.
+   * @returns {Promise<void>}
+   */
+  function refreshSuggestions() {
+    return S.loadSuggestions().then((data) => {
+      fillDatalist(el.subjectList, data.subjects);
+      fillDatalist(el.teacherList, data.teachers);
+      const total = data.subjects.length + data.teachers.length;
+      el.sugClear.disabled = total === 0;
+    });
+  }
+
   /* ---------- Экспорт / импорт ---------- */
 
   /**
@@ -550,6 +580,9 @@
     el.import = document.getElementById('rh-import');
     el.file = document.getElementById('rh-file');
     el.replace = document.getElementById('rh-replace');
+    el.subjectList = document.getElementById('rh-subjects');
+    el.teacherList = document.getElementById('rh-teachers');
+    el.sugClear = document.getElementById('rh-sug-clear');
 
     statusEl.init();
     ioStatus.init();
@@ -585,6 +618,10 @@
 
     el.reset.addEventListener('click', onReset);
 
+    el.sugClear.addEventListener('click', () => {
+      S.clearSuggestions().then(refreshSuggestions);
+    });
+
     el.export.addEventListener('click', onExport);
     // Скрытый <input type="file"> открывается кнопкой — иначе в форме
     // видна серая «Файл не выбран», которая ничего не объясняет.
@@ -601,9 +638,16 @@
 
     loadSettings().then(applySettingsToForm);
     refresh();
+    refreshSuggestions();
 
-    // Правила могли измениться на странице расписания — обновляем список.
     getChrome().storage.onChanged.addListener((changes, area) => {
+      // Подсказки копит content script в local — страница расписания могла
+      // открыться уже после того, как настройки были открыты.
+      if (area === 'local') {
+        if (changes[S.SUGGESTIONS_KEY]) refreshSuggestions();
+        return;
+      }
+      // Правила могли измениться на странице расписания — обновляем список.
       if (area !== 'sync') return;
       if (changes.rules) refresh();
       loadSettings().then(applySettingsToForm);
