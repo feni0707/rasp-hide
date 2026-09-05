@@ -351,6 +351,152 @@ t('resetRules: lastError → error', async () => {
   assert.strictEqual(mock.rules().length, 1); // не тронуто
 });
 
+/* ---------- Экспорт / импорт ---------- */
+
+t('serializeRules: формат файла, санитизация, воспроизводимость', () => {
+  const text = R.serializeRules(
+    [rule(' Матан ', null), rule('АЯ', ' Иванов И. И. ', false), { subject: '  ' }],
+    { exportedAt: '2026-09-05T00:00:00.000Z' }
+  );
+  const data = JSON.parse(text);
+  assert.strictEqual(data.format, R.EXPORT_FORMAT);
+  assert.strictEqual(data.version, R.EXPORT_VERSION);
+  assert.strictEqual(data.exportedAt, '2026-09-05T00:00:00.000Z');
+  assert.deepStrictEqual(data.rules, [
+    { subject: 'Матан', teacher: null, enabled: true },
+    { subject: 'АЯ', teacher: 'Иванов И. И.', enabled: false },
+  ], 'правила нормализованы, правило без предмета отброшено');
+  // Тот же вход — тот же файл (время приходит аргументом, не Date.now()).
+  assert.strictEqual(text, R.serializeRules([rule('Матан'), rule('АЯ', 'Иванов И. И.', false)],
+    { exportedAt: '2026-09-05T00:00:00.000Z' }));
+});
+
+t('parseRulesExport: свой файл, голый массив, мусор', () => {
+  const own = R.serializeRules([rule('Матан', 'Иванов И. И.')], {});
+  assert.deepStrictEqual(R.parseRulesExport(own), {
+    status: 'ok',
+    rules: [{ subject: 'Матан', teacher: 'Иванов И. И.', enabled: true }],
+  });
+
+  // Голый массив — файл могли собрать руками.
+  const bare = R.parseRulesExport('[{"subject":"Физика","teacher":null}]');
+  assert.deepStrictEqual(bare.rules, [{ subject: 'Физика', teacher: null, enabled: true }]);
+
+  // Мусорные записи внутри валидного файла отбрасываются, не роняют разбор.
+  const dirty = R.parseRulesExport('{"rules":[{"subject":""},null,7,{"subject":"ОС"}]}');
+  assert.deepStrictEqual(dirty.rules, [{ subject: 'ОС', teacher: null, enabled: true }]);
+
+  for (const bad of ['не json', '{}', '{"rules":{}}', '{"format":"other","rules":[]}']) {
+    assert.strictEqual(R.parseRulesExport(bad).status, 'invalid', bad);
+    assert.strictEqual(R.parseRulesExport(bad).message, R.MSG_BAD_FILE);
+  }
+});
+
+t('planImport: слияние — дубликаты и покрытые пропускаются', () => {
+  const existing = [rule('Матан', null), rule('Физика', 'Петров П. П.')];
+  const plan = R.planImport(
+    [rule('Матан', null), rule('Матан', 'Иванов И. И.'), rule('Химия', null)],
+    existing
+  );
+  assert.strictEqual(plan.status, 'ok');
+  assert.deepStrictEqual(plan.added, [{ subject: 'Химия', teacher: null, enabled: true }]);
+  assert.deepStrictEqual(plan.skipped.map((x) => x.reason), ['duplicate', 'covered']);
+  assert.deepStrictEqual(plan.absorbed, [], 'ничего из текущего набора не пропало');
+  assert.strictEqual(plan.result.length, 3);
+});
+
+t('planImport: широкое правило из файла поглощает узкие — с указанием, что пропадёт', () => {
+  const narrow = rule('АЯ', 'Иванов И. И.');
+  const plan = R.planImport([rule('АЯ', null)], [narrow, rule('Матан', null)]);
+  assert.strictEqual(plan.status, 'ok');
+  assert.deepStrictEqual(plan.absorbed, [narrow], 'узкое правило пропадёт — это надо показать');
+  assert.deepStrictEqual(
+    plan.result.map(R.formatRule).sort(),
+    ['АЯ — все преподаватели', 'Матан — все преподаватели']
+  );
+});
+
+t('planImport: поглощение внутри самого файла в absorbed не попадает', () => {
+  // Файл сам нарушает инвариант: и узкое, и широкое правило одного предмета.
+  const plan = R.planImport([rule('АЯ', 'Иванов И. И.'), rule('АЯ', null)], []);
+  assert.strictEqual(plan.status, 'ok');
+  assert.deepStrictEqual(plan.absorbed, [], 'из текущего набора не пропало ничего');
+  assert.deepStrictEqual(plan.result, [{ subject: 'АЯ', teacher: null, enabled: true }]);
+});
+
+t('planImport: replace заменяет набор целиком', () => {
+  const plan = R.planImport([rule('Химия', null)], [rule('Матан', null)], { replace: true });
+  assert.strictEqual(plan.status, 'ok');
+  assert.deepStrictEqual(plan.result, [{ subject: 'Химия', teacher: null, enabled: true }]);
+});
+
+t('planImport: не помещается в лимит — импорт не выполняется наполовину', () => {
+  const existing = [];
+  for (let i = 0; i < R.MAX_RULES - 1; i++) existing.push(rule('Предмет ' + i, null));
+  const plan = R.planImport([rule('Новый A', null), rule('Новый B', null)], existing);
+  assert.strictEqual(plan.status, 'limit');
+  assert.strictEqual(plan.fits, R.MAX_RULES, 'сообщение может назвать, сколько поместилось бы');
+});
+
+t('importRules: разрушительный импорт требует подтверждения', async () => {
+  const mock = makeChromeMock([rule('АЯ', 'Иванов И. И.')]);
+  install(mock);
+
+  const first = await R.importRules([rule('АЯ', null)]);
+  assert.strictEqual(first.status, 'confirm', 'поглощение — только с подтверждением');
+  assert.deepStrictEqual(mock.rules(), [{ subject: 'АЯ', teacher: 'Иванов И. И.', enabled: true }],
+    'без подтверждения ничего не записано');
+
+  const second = await R.importRules([rule('АЯ', null)], { confirmed: true });
+  assert.strictEqual(second.status, 'imported');
+  assert.deepStrictEqual(mock.rules(), [{ subject: 'АЯ', teacher: null, enabled: true }]);
+});
+
+t('importRules: неразрушительный импорт идёт сразу', async () => {
+  const mock = makeChromeMock([rule('Матан', null)]);
+  install(mock);
+  const res = await R.importRules([rule('Химия', null)]);
+  assert.strictEqual(res.status, 'imported');
+  assert.strictEqual(mock.rules().length, 2);
+});
+
+t('importRules: replace поверх непустого набора требует подтверждения', async () => {
+  const mock = makeChromeMock([rule('Матан', null)]);
+  install(mock);
+  assert.strictEqual((await R.importRules([rule('Химия', null)], { replace: true })).status, 'confirm');
+  assert.deepStrictEqual(mock.rules(), [{ subject: 'Матан', teacher: null, enabled: true }]);
+
+  const res = await R.importRules([rule('Химия', null)], { replace: true, confirmed: true });
+  assert.strictEqual(res.status, 'imported');
+  assert.deepStrictEqual(mock.rules(), [{ subject: 'Химия', teacher: null, enabled: true }]);
+});
+
+t('importRules: lastError при записи → error, данные не теряются', async () => {
+  const mock = makeChromeMock([rule('Матан', null)]);
+  install(mock);
+  mock.failNextSet();
+  const res = await R.importRules([rule('Химия', null)]);
+  assert.strictEqual(res.status, 'error');
+  assert.strictEqual(res.message, R.MSG_NOT_SAVED);
+  assert.deepStrictEqual(mock.rules(), [{ subject: 'Матан', teacher: null, enabled: true }]);
+});
+
+t('экспорт → импорт: круговой рейс сохраняет набор', async () => {
+  const set = [rule('Матан', null), rule('АЯ', 'Иванов И. И.', false)];
+  const text = R.serializeRules(set, { exportedAt: '2026-09-05T00:00:00.000Z' });
+  const parsed = R.parseRulesExport(text);
+  assert.strictEqual(parsed.status, 'ok');
+
+  const mock = makeChromeMock([]);
+  install(mock);
+  const res = await R.importRules(parsed.rules);
+  assert.strictEqual(res.status, 'imported');
+  assert.deepStrictEqual(mock.rules(), [
+    { subject: 'Матан', teacher: null, enabled: true },
+    { subject: 'АЯ', teacher: 'Иванов И. И.', enabled: false },
+  ]);
+});
+
 /* ---------- Запуск ---------- */
 
 async function run() {

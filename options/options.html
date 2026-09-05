@@ -44,6 +44,9 @@
     .rh-status--info{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
     .rh-status-text{flex:1;word-break:break-word;}
     .rh-status[hidden]{display:none;}
+    .rh-io{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+    .rh-file{display:none;}
+    .rh-check{display:flex;align-items:center;gap:6px;cursor:pointer;color:#374151;font-size:13px;}
   </style>
 </head>
 <body>
@@ -101,6 +104,32 @@
       <p class="rh-hint">
         Введите ФИО точно как в расписании («Фамилия И. Я.»). Пустое поле — правило
         «у всех преподавателей»: оно скрывает пары предмета у любого преподавателя.
+      </p>
+    </section>
+
+    <section class="rh-card">
+      <h2>Экспорт и импорт</h2>
+      <p class="rh-hint">
+        Файл с правилами можно сохранить на диск и перенести в другой профиль или браузер.
+        Тумблер и стиль скрытия в файл не попадают — только список правил.
+      </p>
+
+      <div class="rh-status" id="rh-io-status" hidden>
+        <span class="rh-status-text" id="rh-io-status-text"></span>
+      </div>
+
+      <div class="rh-io">
+        <button type="button" class="rh-btn" id="rh-export">Скачать JSON</button>
+        <button type="button" class="rh-btn" id="rh-import">Загрузить из файла…</button>
+        <input type="file" class="rh-file" id="rh-file" accept="application/json,.json">
+        <label class="rh-check">
+          <input type="checkbox" id="rh-replace">
+          <span>Заменить текущие правила</span>
+        </label>
+      </div>
+      <p class="rh-hint">
+        Без галочки правила из файла добавляются к текущим: дубликаты и уже покрытые
+        пропускаются. Если импорт что-то удаляет, сначала показывается сводка.
       </p>
     </section>
   </main>

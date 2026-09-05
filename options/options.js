@@ -2,8 +2,10 @@
  * Страница настроек (фаза 7): тумблер вкл/выкл, radio стиля скрытия,
  * список правил (сортировка по предмету, «все» выше конкретных ФИО,
  * поиск-фильтр, счётчик N/100, лимит 100), добавление вручную,
- * подтверждения (дубликат/поглощение/сброс), обработка ошибок записи.
- * Все изменения правил — через общий lib/rules.js (RASP_HIDE_RULES).
+ * подтверждения (дубликат/поглощение/сброс), обработка ошибок записи,
+ * экспорт/импорт правил в JSON.
+ * Все изменения правил — через общий lib/rules.js (RASP_HIDE_RULES):
+ * импорт проходит те же инварианты, что и ручное добавление.
  */
 (function (global) {
   'use strict';
@@ -15,7 +17,63 @@
 
   // Часто используемые элементы страницы.
   const el = {};
-  const statusEl = {}; // блок статуса: текст + кнопки действий
+
+  /**
+   * Блок статуса: текст + кнопки действий. Их на странице два — у списка
+   * правил и у экспорта/импорта, — поэтому фабрика, а не singleton.
+   * @param {string} rootId
+   * @param {string} textId
+   * @returns {object}
+   */
+  function createStatus(rootId, textId) {
+    const st = {
+      root: null,
+      text: null,
+      buttons: [],
+
+      /** Привязка к DOM (после загрузки страницы). */
+      init() {
+        st.root = document.getElementById(rootId);
+        st.text = document.getElementById(textId);
+        st.buttons = [];
+      },
+
+      /**
+       * @param {string} text
+       * @param {Array<{label: string, onClick: Function, danger?: boolean}>} [actions]
+       * @param {string} [kind] - 'error' (по умолчанию) или 'info'
+       */
+      show(text, actions, kind) {
+        st.text.textContent = text;
+        for (const btn of st.buttons) btn.remove();
+        st.buttons = [];
+        for (const action of actions || []) {
+          const btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'rh-btn rh-btn--sm' + (action.danger ? ' rh-btn--danger' : '');
+          btn.textContent = action.label;
+          btn.addEventListener('click', action.onClick);
+          st.root.appendChild(btn);
+          st.buttons.push(btn);
+        }
+        st.root.classList.toggle('rh-status--error', kind !== 'info');
+        st.root.classList.toggle('rh-status--info', kind === 'info');
+        st.root.hidden = false;
+      },
+
+      /** Скрытие блока. */
+      hide() {
+        st.root.hidden = true;
+        st.text.textContent = '';
+        for (const btn of st.buttons) btn.remove();
+        st.buttons = [];
+      },
+    };
+    return st;
+  }
+
+  const statusEl = createStatus('rh-status', 'rh-status-text');
+  const ioStatus = createStatus('rh-io-status', 'rh-io-status-text');
 
   /**
    * Доступ к chrome API (для подмены моками в тестах).
@@ -95,47 +153,26 @@
   }
 
   /**
-   * Отрисовка блока статуса: сообщение + необязательные кнопки-действия.
+   * Статус у списка правил: ошибка.
    * @param {string} text
    * @param {Array<{label: string, onClick: Function, danger?: boolean}>} [actions]
    */
   function showStatus(text, actions) {
-    statusEl.text.textContent = text;
-    for (const btn of statusEl.buttons) btn.remove();
-    statusEl.buttons = [];
-    for (const action of actions || []) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'rh-btn rh-btn--sm' + (action.danger ? ' rh-btn--danger' : '');
-      btn.textContent = action.label;
-      btn.addEventListener('click', action.onClick);
-      statusEl.root.appendChild(btn);
-      statusEl.buttons.push(btn);
-    }
-    statusEl.root.classList.toggle('rh-status--error', true);
-    statusEl.root.classList.toggle('rh-status--info', false);
-    statusEl.root.hidden = false;
+    statusEl.show(text, actions, 'error');
   }
 
   /**
-   * Информационный статус (поглощение и т.п.).
+   * Статус у списка правил: информация (поглощение и т.п.).
    * @param {string} text
    * @param {Array<{label: string, onClick: Function, danger?: boolean}>} [actions]
    */
   function showInfoStatus(text, actions) {
-    showStatus(text, actions);
-    statusEl.root.classList.toggle('rh-status--error', false);
-    statusEl.root.classList.toggle('rh-status--info', true);
+    statusEl.show(text, actions, 'info');
   }
 
-  /**
-   * Скрытие блока статуса.
-   */
+  /** Скрытие статуса у списка правил. */
   function hideStatus() {
-    statusEl.root.hidden = true;
-    statusEl.text.textContent = '';
-    for (const btn of statusEl.buttons) btn.remove();
-    statusEl.buttons = [];
+    statusEl.hide();
   }
 
   /**
@@ -362,6 +399,125 @@
     R.resetRules().then(handleMutationResult);
   }
 
+  /* ---------- Экспорт / импорт ---------- */
+
+  /**
+   * Имя файла экспорта: rasp-hide-rules-ГГГГ-ММ-ДД.json (чистая функция).
+   * @param {Date} date
+   * @returns {string}
+   */
+  function exportFileName(date) {
+    const pad = (n) => String(n).padStart(2, '0');
+    const stamp = date.getFullYear() + '-' + pad(date.getMonth() + 1) + '-' + pad(date.getDate());
+    return 'rasp-hide-rules-' + stamp + '.json';
+  }
+
+  /**
+   * Текст сводки импорта (чистая функция) — до записи и после неё.
+   * @param {object} plan - результат planImport/importRules
+   * @param {{phase: 'confirm'|'done', replace?: boolean, currentCount?: number}} opts
+   * @returns {string}
+   */
+  function importSummary(plan, opts) {
+    const skipped = plan.skipped.length
+      ? ', пропущено: ' + plan.skipped.length + ' (дубликаты и уже покрытые)'
+      : '';
+    if (opts.phase === 'confirm') {
+      const parts = [];
+      if (opts.replace) {
+        parts.push('Текущие правила будут заменены (сейчас ' + opts.currentCount + ').');
+      }
+      if (plan.absorbed.length) {
+        parts.push('Будут удалены как поглощённые: ' +
+          plan.absorbed.map(R.formatRule).join('; ') + '.');
+      }
+      parts.push('Добавится: ' + plan.added.length + skipped + '.');
+      return parts.join(' ');
+    }
+    const removed = plan.absorbed.length ? ', удалено поглощённых: ' + plan.absorbed.length : '';
+    return 'Импортировано правил: ' + plan.added.length + removed + skipped + '.';
+  }
+
+  /**
+   * Экспорт: файл скачивается через blob-ссылку, сеть не используется.
+   */
+  function onExport() {
+    const text = R.serializeRules(rules, { exportedAt: new Date().toISOString() });
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = exportFileName(new Date());
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    // Отзыв ссылки — следующим тиком, чтобы скачивание успело стартовать.
+    setTimeout(() => URL.revokeObjectURL(url), 0);
+    ioStatus.show('Сохранено правил: ' + rules.length + '.', [], 'info');
+  }
+
+  /**
+   * Импорт разобранных правил. Разрушительный (замена набора или поглощение
+   * существующих правил) сначала показывает сводку и требует подтверждения —
+   * тот же инвариант, что и при ручном добавлении.
+   * @param {object[]} incoming
+   * @param {boolean} replace
+   * @param {boolean} confirmed
+   */
+  function runImport(incoming, replace, confirmed) {
+    const currentCount = rules.length;
+    R.importRules(incoming, { replace, confirmed }).then((res) => {
+      if (res.status === 'confirm') {
+        ioStatus.show(
+          importSummary(res, { phase: 'confirm', replace, currentCount }),
+          [
+            {
+              label: 'Импортировать',
+              danger: true,
+              onClick: () => runImport(incoming, replace, true),
+            },
+            { label: 'Отмена', onClick: () => ioStatus.hide() },
+          ],
+          'info'
+        );
+        return;
+      }
+      if (res.status === 'limit') {
+        ioStatus.show('Не помещается в лимит ' + R.MAX_RULES + ' правил (поместилось бы ' +
+          res.fits + '). Удалите часть правил и повторите.');
+        return;
+      }
+      if (res.status === 'error') {
+        ioStatus.show(res.message || R.MSG_NOT_SAVED);
+        refresh();
+        return;
+      }
+      ioStatus.show(importSummary(res, { phase: 'done' }), [], 'info');
+      refresh();
+    });
+  }
+
+  /**
+   * Чтение выбранного файла и запуск импорта.
+   * @param {File} file
+   */
+  function onImportFile(file) {
+    const reader = new FileReader();
+    reader.onerror = () => ioStatus.show('Не удалось прочитать файл.');
+    reader.onload = () => {
+      const parsed = R.parseRulesExport(String(reader.result));
+      if (parsed.status !== 'ok') {
+        ioStatus.show(parsed.message);
+        return;
+      }
+      if (parsed.rules.length === 0) {
+        ioStatus.show('В файле нет правил.');
+        return;
+      }
+      runImport(parsed.rules, el.replace.checked, false);
+    };
+    reader.readAsText(file);
+  }
+
   /**
    * Применение настроек к элементам формы (при загрузке и по onChanged).
    * @param {{enabled: boolean, style: string}} settings
@@ -390,10 +546,13 @@
     el.teacherInput = document.getElementById('rh-teacher');
     el.addButton = document.getElementById('rh-add-btn');
     el.reset = document.getElementById('rh-reset');
+    el.export = document.getElementById('rh-export');
+    el.import = document.getElementById('rh-import');
+    el.file = document.getElementById('rh-file');
+    el.replace = document.getElementById('rh-replace');
 
-    statusEl.root = document.getElementById('rh-status');
-    statusEl.text = document.getElementById('rh-status-text');
-    statusEl.buttons = [];
+    statusEl.init();
+    ioStatus.init();
 
     el.enabled.addEventListener('change', () => {
       saveSetting('enabled', el.enabled.checked).then((ok) => {
@@ -426,6 +585,20 @@
 
     el.reset.addEventListener('click', onReset);
 
+    el.export.addEventListener('click', onExport);
+    // Скрытый <input type="file"> открывается кнопкой — иначе в форме
+    // видна серая «Файл не выбран», которая ничего не объясняет.
+    el.import.addEventListener('click', () => {
+      ioStatus.hide();
+      el.file.click();
+    });
+    el.file.addEventListener('change', () => {
+      const file = el.file.files && el.file.files[0];
+      // Сброс значения: повторный выбор того же файла тоже должен сработать.
+      el.file.value = '';
+      if (file) onImportFile(file);
+    });
+
     loadSettings().then(applySettingsToForm);
     refresh();
 
@@ -437,7 +610,7 @@
     });
   }
 
-  const O = { sortRules, matchesFilter, renderRules, init };
+  const O = { sortRules, matchesFilter, renderRules, exportFileName, importSummary, init };
   global.RASP_HIDE_OPTIONS = O;
   if (typeof module !== 'undefined' && module.exports) {
     module.exports = O;
