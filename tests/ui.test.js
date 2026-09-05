@@ -171,6 +171,36 @@ for (const [page, script] of [
   });
 }
 
+t('каждый rh-класс из разметки и скриптов объявлен в стилях', () => {
+  const pages = ['popup/popup.html', 'options/options.html'];
+  const scripts = ['ui/rules-list.js', 'ui/status.js', 'ui/icons.js'];
+
+  // Где класс может быть объявлен: общая тема + собственные <style> страниц.
+  let css = theme();
+  for (const page of pages) {
+    const html = read(page);
+    css += html.slice(html.indexOf('<style>'), html.indexOf('</style>'));
+  }
+  const defined = new Set([...css.matchAll(/\.(rh-[\w-]+)/g)].map((m) => m[1]));
+
+  const used = new Set();
+  for (const page of pages) {
+    for (const m of read(page).matchAll(/class="([^"]*)"/g)) {
+      for (const cls of m[1].split(/\s+/)) if (cls.startsWith('rh-')) used.add(cls);
+    }
+  }
+  // Классы, которые навешивает JS: 'rh-btn rh-btn--sm', classList.toggle(...) и т.п.
+  for (const file of scripts) {
+    for (const m of read(file).matchAll(/'((?:rh-[\w-]+)(?: rh-[\w-]+)*)'/g)) {
+      for (const cls of m[1].split(/\s+/)) used.add(cls);
+    }
+  }
+  assert.ok(used.size >= 20, 'ожидался набор классов, найдено ' + used.size);
+
+  const missing = [...used].filter((c) => !defined.has(c)).sort();
+  assert.deepStrictEqual(missing, [], 'классы без правил: ' + missing.join(', '));
+});
+
 /* ---------- Тема ---------- */
 
 /** @returns {string} общая таблица стилей */
