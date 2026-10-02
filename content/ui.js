@@ -9,6 +9,11 @@
   'use strict';
 
   const STYLE_ID = 'rh-styles';
+  // Класс-контейнер для клетки: кнопка и меню позиционируются внутри td.
+  // Именно класс, а не инлайн-стиль: content.js кэширует атрибут style клетки,
+  // и запись position:relative протекала бы в «исходный» стиль и оставалась
+  // на клетке после полного отката.
+  const CELL_CLASS = 'rh-cell';
   const rhElements = new Set();
   const controllers = new Set();
   const controllerByHeader = new WeakMap(); // заголовок пары (pair[0]) → контроллер.
@@ -42,6 +47,7 @@
     const style = document.createElement('style');
     style.id = STYLE_ID;
     style.textContent =
+      '.rh-cell{position:relative;}' +
       '.rh-strike{opacity:.35 !important;text-decoration:line-through !important;}' +
       '.rh-strike a,.rh-strike b{text-decoration:line-through;}' +
       '.rh-placeholder{color:#9ca3af;font-size:12px;padding:4px 0;opacity:.7;user-select:none;}' +
@@ -99,15 +105,6 @@
   }
 
   /**
-   * Удаление только плейсхолдеров (переключение placeholder→strike).
-   */
-  function removePlaceholders() {
-    for (const el of [...rhElements]) {
-      if (el.classList && el.classList.contains('rh-placeholder')) el.remove();
-    }
-  }
-
-  /**
    * Удаление всех элементов расширения (rh-*) — полный откат при глобальном OFF.
    * Ховер-UI полностью выключается.
    */
@@ -117,46 +114,9 @@
     rhElements.clear();
   }
 
-  /**
-   * Признак плейсхолдера.
-   * @param {Element|null} el
-   * @returns {boolean}
-   */
-  function isPh(el) {
-    return !!(el && el.classList &&
-      typeof el.classList.contains === 'function' &&
-      el.classList.contains('rh-placeholder'));
-  }
-
-  /**
-   * Индекс дочернего элемента клетки.
-   * @param {HTMLElement} cell
-   * @param {Element} el
-   * @returns {number} -1, если не найден.
-   */
-  function childIndex(cell, el) {
-    for (let i = 0; i < cell.children.length; i++) {
-      if (cell.children[i] === el) return i;
-    }
-    return -1;
-  }
-
-  /**
-   * Плейсхолдеры пары (в диапазоне её элементов в клетке).
-   * @param {HTMLElement} cell
-   * @param {HTMLElement[]} pair
-   * @returns {HTMLElement[]}
-   */
-  function placeholdersForPair(cell, pair) {
-    const out = [];
-    const start = childIndex(cell, pair[0]);
-    const end = childIndex(cell, pair[pair.length - 1]);
-    if (start < 0 || end < start) return out;
-    for (let i = start; i <= end + 1 && i < cell.children.length; i++) {
-      if (isPh(cell.children[i])) out.push(cell.children[i]);
-    }
-    return out;
-  }
+  // Общие с content.js хелперы по структуре клетки — см. content/matcher.js.
+  const childIndex = M.childIndex;
+  const placeholdersForPair = M.placeholdersForPair;
 
   /**
    * Контекст плейсхолдера: какая пара/блок за ним (для «Вернуть»).
@@ -198,11 +158,15 @@
   }
 
   /**
-   * Сделать клетку позиционированным контейнером (без перезаписи существующих стилей).
+   * Сделать клетку позиционированным контейнером — классом, не инлайн-стилем.
+   * Инлайн-запись position попадала в кэш «исходного» стиля клетки (content.js)
+   * и оставалась после полного отката; класс снимается вместе с rh-* элементами.
    * @param {HTMLElement} cell
    */
   function ensureCellPosition(cell) {
-    if (!cell.style.position) cell.style.position = 'relative';
+    if (cell.classList && typeof cell.classList.add === 'function') {
+      cell.classList.add(CELL_CLASS);
+    }
   }
 
   /**
@@ -477,7 +441,7 @@
     const hoverBtn = registerRhElement(document.createElement('button'));
     hoverBtn.type = 'button';
     hoverBtn.className = 'rh-hover-btn';
-    hoverBtn.textContent = 'Скрыть';
+    hoverBtn.textContent = 'Скрыть ▾'; // тот же текст, что и в showFor
     hoverBtn.addEventListener('click', onBtnClick);
     cell.appendChild(hoverBtn);
 
@@ -708,7 +672,7 @@
     for (const r of absorbed) {
       const div = document.createElement('div');
       div.className = 'rh-menu-absorbed';
-      div.textContent = r.subject + (r.teacher ? ' — ' + r.teacher : ' — все преподаватели');
+      div.textContent = R.formatRule(r);
       menu.appendChild(registerRhElement(div));
     }
     addMenuItem(menu, 'Удалить', onConfirm);
@@ -750,15 +714,17 @@
       teacher = pm.teachers[0];
     }
     const res = await R.restorePair(pm.name, teacher);
-    hideController(c);
+    // hideController прячет и кнопку, и меню, поэтому вызывается только на
+    // успешной ветке: иначе сообщение об ошибке всплывало бы без своей кнопки.
     if (res.status === 'none') renderStatus(c, 'Не найдено правило для возврата');
     else if (res.status === 'error') renderStatus(c, R.MSG_NOT_SAVED);
+    else hideController(c);
   }
 
   const UI = {
+    CELL_CLASS,
     injectStyles,
     createPlaceholder,
-    removePlaceholders,
     removeAllRhElements,
     syncHover,
     destroyAllHover,

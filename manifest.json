@@ -6,6 +6,7 @@
   "permissions": ["storage"],
   "action": {
     "default_title": "Rasp Hide",
+    "default_popup": "popup/popup.html",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
@@ -16,10 +17,23 @@
   "background": {
     "service_worker": "background.js"
   },
+  "commands": {
+    "toggle-hiding": {
+      "suggested_key": { "default": "Alt+Shift+H" },
+      "description": "Включить или выключить скрытие пар"
+    }
+  },
   "content_scripts": [
     {
       "matches": ["https://ro-rasp.tpu.ru/*"],
-      "js": ["content/matcher.js", "lib/rules.js", "content/ui.js", "content/content.js"],
+      "js": [
+        "lib/text.js",
+        "content/matcher.js",
+        "lib/rules.js",
+        "lib/suggestions.js",
+        "content/ui.js",
+        "content/content.js"
+      ],
       "run_at": "document_idle"
     }
   ],

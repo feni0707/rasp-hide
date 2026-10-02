@@ -4,6 +4,6 @@
   "private": true,
   "description": "Скрытие пар в расписании ТПУ на ro-rasp.tpu.ru",
   "scripts": {
-    "test": "node tests/matcher.test.js && node tests/rules.test.js && node tests/content.test.js && node tests/background.test.js"
+    "test": "node tests/matcher.test.js && node tests/rules.test.js && node tests/content.test.js && node tests/background.test.js && node tests/options.test.js && node tests/suggestions.test.js && node tests/ui.test.js && node tests/popup.test.js"
   }
 }

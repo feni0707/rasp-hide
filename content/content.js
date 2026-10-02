@@ -8,13 +8,17 @@
  * strike-прогон (MutationObserver/debounce) их не уничтожает, поэтому
  * переключение стиля не теряет «скрыто» и не ломает фон клетки,
  * WeakMap-кэш исходных стилей, MutationObserver (debounce ~120 мс),
- * chrome.storage.onChanged, счётчик скрытых пар → sendMessage.
+ * chrome.storage.onChanged, счётчик скрытых пар → sendMessage,
+ * сбор подсказок (названия/ФИО) для настроек в chrome.storage.local.
+ * Прогон и откат защищены от «протухшего» дебаунс-таймера: processCells
+ * молча выходит при выключенном тумблере, fullRollback таймер снимает.
  */
 (function (global) {
   'use strict';
 
   const M = global.RASP_HIDE_MATCHER;
   const UI = global.RASP_HIDE_UI;
+  const SUG = global.RASP_HIDE_SUGGESTIONS;
 
   const originalCellStyles = new WeakMap();
   let settings = { enabled: true, style: 'placeholder', rules: [] };
@@ -64,47 +68,10 @@
     el.classList.remove('rh-strike');
   }
 
-  /**
-   * Признак элемента расширения (плейсхолдер).
-   * @param {Element|null} el
-   * @returns {boolean}
-   */
-  function isPh(el) {
-    return !!(el && el.classList &&
-      typeof el.classList.contains === 'function' &&
-      el.classList.contains('rh-placeholder'));
-  }
-
-  /**
-   * Индекс элемента среди children клетки.
-   * @param {HTMLElement} cell
-   * @param {Element} el
-   * @returns {number} -1, если не найден.
-   */
-  function childIndex(cell, el) {
-    for (let i = 0; i < cell.children.length; i++) {
-      if (cell.children[i] === el) return i;
-    }
-    return -1;
-  }
-
-  /**
-   * Элементы расширения (плейсхолдеры) в диапазоне пары клетки.
-   * @param {HTMLElement} cell
-   * @param {HTMLElement[]} pair
-   * @returns {HTMLElement[]}
-   */
-  function placeholdersForPair(cell, pair) {
-    const result = [];
-    const start = childIndex(cell, pair[0]);
-    const end = childIndex(cell, pair[pair.length - 1]);
-    if (start < 0 || end < start) return result;
-    const snapshot = Array.prototype.slice.call(cell.children);
-    for (let i = start; i <= end + 1 && i < snapshot.length; i++) {
-      if (isPh(snapshot[i])) result.push(snapshot[i]);
-    }
-    return result;
-  }
+  // Общие с ui.js хелперы по структуре клетки — см. content/matcher.js.
+  const isPh = M.isPlaceholder;
+  const childIndex = M.childIndex;
+  const placeholdersForPair = M.placeholdersForPair;
 
   /**
    * Синхронизация плейсхолдеров пары с местами скрытия (attachPoints).
@@ -185,8 +152,12 @@
    * Пара с несколькими преподавателями скрывается поблочно: каждый блок
    * ([Преп N...] после <hr>) проверяется правилом независимо; «шапка» пары
    * скрывается, только когда скрыты ВСЕ её блоки.
+   * При выключенном тумблере не делает ничего: прогон мог быть запланирован
+   * дебаунсом ДО выключения и сработать уже после fullRollback — без этой
+   * проверки «протухший» таймер возвращал бы скрытие и зелёный бейдж.
    */
   function processCells() {
+    if (!settings.enabled) return;
     const table = document.querySelector('#raspisanie-table');
     if (!table) return;
     const cells = table.querySelectorAll('td.cell');
@@ -257,18 +228,44 @@
     }
     UI.syncHover(allMeta);
     sendCount(hiddenCount);
+    rememberSuggestions(allMeta);
+  }
+
+  /**
+   * Запоминание увиденных названий и ФИО для подсказок в настройках
+   * (chrome.storage.local, наружу не уходит). Пишется только при изменении:
+   * прогон идёт по дебаунсу и не должен дёргать хранилище на каждую
+   * перерисовку таблицы.
+   * @param {object[]} allMeta - метаданные пар текущей страницы
+   */
+  function rememberSuggestions(allMeta) {
+    if (!SUG) return;
+    const subjects = [];
+    const teachers = [];
+    for (const pm of allMeta) {
+      if (pm.name) subjects.push(pm.name);
+      for (const t of pm.teachers) teachers.push(t);
+    }
+    if (!subjects.length && !teachers.length) return;
+    // Ошибки записи подсказок молчаливы: это удобство, а не данные пользователя.
+    SUG.addSuggestions({ subjects, teachers }).catch(() => {});
   }
 
   /**
    * Полный откат при глобальном OFF: удалить rh-*, восстановить стили.
+   * Снимает и запланированный дебаунсом прогон: иначе он сработает уже после
+   * отката и вернёт скрытие при выключенном расширении.
    */
   function fullRollback() {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
     UI.removeAllRhElements();
     const table = document.querySelector('#raspisanie-table');
     if (table) {
       const cells = table.querySelectorAll('td.cell');
       for (const cell of cells) {
         restoreCellStyle(cell);
+        if (cell.classList) cell.classList.remove(UI.CELL_CLASS);
         const pairs = M.splitIntoPairs(cell.children);
         for (const pair of pairs) restorePair(pair, cell);
       }
@@ -322,7 +319,6 @@
     cacheCellStyle,
     restoreCellStyle,
     applyPairStyle,
-    isPh,
     hidePair,
     restorePair,
     syncPlaceholders,

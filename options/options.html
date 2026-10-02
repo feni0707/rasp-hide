@@ -4,83 +4,71 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Rasp Hide — настройки</title>
+  <link rel="stylesheet" href="../ui/theme.css">
   <style>
-    body{margin:0;font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
-      font-size:14px;color:#111827;background:#f8fafc;}
-    .rh-opt{max-width:640px;margin:0 auto;padding:24px 16px 48px;}
-    .rh-opt h1{font-size:20px;margin:0 0 16px;}
-    .rh-opt h2{font-size:16px;margin:0 0 8px;}
-    .rh-card{background:#fff;border:1px solid #e2e8f0;border-radius:8px;
-      padding:16px;margin-bottom:16px;}
-    .rh-row{display:flex;align-items:center;gap:8px;margin:6px 0;}
-    .rh-label{display:flex;align-items:center;gap:8px;cursor:pointer;}
-    .rh-hint{color:#6b7280;font-size:12px;margin:4px 0 0;}
-    .rh-count{color:#6b7280;font-size:12px;font-weight:400;margin-left:8px;}
-    .rh-head{display:flex;align-items:baseline;justify-content:space-between;gap:8px;flex-wrap:wrap;}
-    .rh-search{width:100%;box-sizing:border-box;border:1px solid #cbd5e1;border-radius:6px;
-      padding:6px 10px;font-size:14px;margin:8px 0;}
-    .rh-search:focus{outline:2px solid #93c5fd;border-color:#93c5fd;}
-    .rh-rules{border:1px solid #e2e8f0;border-radius:6px;overflow:hidden;margin-bottom:12px;}
-    .rh-rule{display:flex;align-items:center;gap:8px;padding:8px 12px;
-      border-bottom:1px solid #f1f5f9;}
-    .rh-rule:last-child{border-bottom:0;}
-    .rh-rule--off .rh-rule-subject,.rh-rule--off .rh-rule-teacher{color:#9ca3af;}
-    .rh-rule-subject{flex:1;word-break:break-word;}
-    .rh-rule-teacher{color:#6b7280;white-space:nowrap;}
-    .rh-btn{border:1px solid #cbd5e1;background:#fff;border-radius:6px;
-      padding:6px 12px;font-size:13px;cursor:pointer;color:#374151;}
-    .rh-btn:hover{background:#f8fafc;border-color:#94a3b8;}
-    .rh-btn--danger{color:#b91c1c;border-color:#fecaca;}
-    .rh-btn--danger:hover{background:#fef2f2;border-color:#fca5a5;}
-    .rh-btn--sm{padding:2px 8px;font-size:12px;}
-    .rh-add{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-start;}
-    .rh-add input{flex:1;min-width:180px;border:1px solid #cbd5e1;border-radius:6px;
-      padding:6px 10px;font-size:14px;}
-    .rh-add input:focus{outline:2px solid #93c5fd;border-color:#93c5fd;}
-    .rh-empty{color:#6b7280;padding:12px;}
-    .rh-status{border-radius:6px;padding:8px 12px;margin:8px 0;
-      display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
-    .rh-status--error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;}
-    .rh-status--info{background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;}
-    .rh-status-text{flex:1;word-break:break-word;}
-    .rh-status[hidden]{display:none;}
+    /* Только раскладка страницы: цвета и компоненты — в ui/theme.css,
+       общем с popup. */
+    .rh-opt{max-width:680px;margin:0 auto;padding:var(--rh-s5) var(--rh-s4) var(--rh-s6);}
+    .rh-opt h1{font-size:20px;margin:0 0 var(--rh-s2);}
+    .rh-lead{margin:0 0 var(--rh-s4);}
+    .rh-card{
+      background:var(--rh-surface);border:1px solid var(--rh-border);
+      border-radius:var(--rh-radius);padding:var(--rh-s4);margin-bottom:var(--rh-s4);
+      display:flex;flex-direction:column;gap:var(--rh-s3);
+    }
+    .rh-card > h2{margin:0;}
+    /* Заголовок раздела и кнопка справа в одну строку; счётчик — рядом
+       с заголовком, а не впритык к нему. */
+    .rh-head{display:flex;align-items:baseline;justify-content:space-between;
+      gap:var(--rh-s3);flex-wrap:wrap;}
+    .rh-head .rh-count{margin-left:var(--rh-s2);}
+    .rh-fieldset{border:0;padding:0;margin:0;display:flex;flex-direction:column;gap:var(--rh-s2);}
+    .rh-legend{padding:0;font-size:12px;font-weight:500;color:var(--rh-strong);}
+    .rh-label{display:flex;align-items:center;gap:var(--rh-s2);cursor:pointer;}
+    .rh-add{display:flex;gap:var(--rh-s2);flex-wrap:wrap;align-items:flex-end;}
+    .rh-add .rh-field{min-width:200px;}
+    .rh-io{display:flex;gap:var(--rh-s2);flex-wrap:wrap;align-items:center;}
+    .rh-file{display:none;}
+    .rh-check{display:flex;align-items:center;gap:6px;cursor:pointer;
+      color:var(--rh-strong);font-size:13px;}
+    .rh-sug-row{display:flex;gap:var(--rh-s2);align-items:center;justify-content:space-between;
+      flex-wrap:wrap;}
   </style>
 </head>
 <body>
   <main class="rh-opt">
     <h1>Rasp Hide — настройки</h1>
+    <p class="rh-hint rh-lead">
+      Тумблер, список правил и вид скрытой пары есть и в окне по клику на иконку —
+      здесь то же самое плюс перенос правил и сброс.
+    </p>
 
     <section class="rh-card">
-      <label class="rh-label">
+      <label class="rh-switch" for="rh-enabled">
         <input type="checkbox" id="rh-enabled">
+        <span class="rh-switch-track" aria-hidden="true"><span class="rh-switch-thumb"></span></span>
         <span>Скрывать пары по правилам</span>
       </label>
 
-      <fieldset style="border:0;padding:0;margin:12px 0 0;">
-        <legend style="padding:0;font-size:13px;color:#374151;">Стиль скрытия</legend>
-        <div class="rh-row">
-          <label class="rh-label">
-            <input type="radio" name="rh-style" value="placeholder">
-            <span>Плейсхолдер «скрыто»</span>
-          </label>
-        </div>
-        <div class="rh-row">
-          <label class="rh-label">
-            <input type="radio" name="rh-style" value="strike">
-            <span>Зачеркнуть</span>
-          </label>
+      <fieldset class="rh-fieldset">
+        <legend class="rh-legend">Вид скрытой пары</legend>
+        <div class="rh-seg">
+          <input type="radio" name="rh-style" id="rh-style-placeholder" value="placeholder">
+          <label class="rh-seg-item" for="rh-style-placeholder">Плейсхолдер «скрыто»</label>
+          <input type="radio" name="rh-style" id="rh-style-strike" value="strike">
+          <label class="rh-seg-item" for="rh-style-strike">Зачеркнуть</label>
         </div>
       </fieldset>
     </section>
 
     <section class="rh-card">
       <div class="rh-head">
-        <h2 style="margin:0;">Правила<span class="rh-count" id="rh-count">0/100</span></h2>
+        <h2>Правила<span class="rh-count" id="rh-count">0/100</span></h2>
         <button type="button" class="rh-btn rh-btn--danger" id="rh-reset">Сбросить правила</button>
       </div>
       <p class="rh-hint">Сброс удаляет только список правил: тумблер и стиль не меняются.</p>
 
-      <div class="rh-status" id="rh-status" hidden>
+      <div class="rh-status" id="rh-status" role="status" aria-live="polite" hidden>
         <span class="rh-status-text" id="rh-status-text"></span>
       </div>
 
@@ -88,24 +76,90 @@
         Достигнут лимит 100 правил. Удалите или сбросьте часть правил, чтобы добавить новые.
       </p>
 
-      <input type="search" class="rh-search" id="rh-search"
-        placeholder="Поиск по названию предмета" autocomplete="off">
+      <div class="rh-search">
+        <svg class="rh-i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+          <path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z"/><path d="M16 16l4.5 4.5"/>
+        </svg>
+        <label class="rh-sr-only" for="rh-search">Поиск по предмету или преподавателю</label>
+        <input type="search" class="rh-input" id="rh-search"
+          placeholder="Поиск по предмету или ФИО" autocomplete="off">
+      </div>
 
       <div class="rh-rules" id="rh-rules"></div>
 
       <form id="rh-add" class="rh-add" autocomplete="off">
-        <input type="text" id="rh-subject" placeholder="Название предмета (точно как в расписании)">
-        <input type="text" id="rh-teacher" placeholder="ФИО преподавателя (пусто — у всех)">
-        <button type="submit" class="rh-btn" id="rh-add-btn">Добавить</button>
+        <div class="rh-field">
+          <label class="rh-field-label" for="rh-subject">Название предмета</label>
+          <input type="text" class="rh-input" id="rh-subject" list="rh-subjects"
+            placeholder="как в расписании">
+        </div>
+        <div class="rh-field">
+          <label class="rh-field-label" for="rh-teacher">Преподаватель</label>
+          <input type="text" class="rh-input" id="rh-teacher" list="rh-teachers"
+            placeholder="пусто — у всех преподавателей">
+        </div>
+        <button type="submit" class="rh-btn rh-btn--primary" id="rh-add-btn">Добавить</button>
       </form>
+      <datalist id="rh-subjects"></datalist>
+      <datalist id="rh-teachers"></datalist>
       <p class="rh-hint">
         Введите ФИО точно как в расписании («Фамилия И. Я.»). Пустое поле — правило
         «у всех преподавателей»: оно скрывает пары предмета у любого преподавателя.
       </p>
+      <div class="rh-sug-row">
+        <p class="rh-hint" id="rh-sug-note">
+          Подсказки в полях — названия и ФИО, увиденные на страницах расписания.
+          Хранятся только в этом браузере и никуда не отправляются.
+        </p>
+        <button type="button" class="rh-btn rh-btn--sm" id="rh-sug-clear">Очистить подсказки</button>
+      </div>
+    </section>
+
+    <section class="rh-card">
+      <h2>Экспорт и импорт</h2>
+      <p class="rh-hint">
+        Файл с правилами можно сохранить на диск и перенести в другой профиль или браузер.
+        Тумблер и стиль скрытия в файл не попадают — только список правил.
+      </p>
+
+      <div class="rh-status" id="rh-io-status" role="status" aria-live="polite" hidden>
+        <span class="rh-status-text" id="rh-io-status-text"></span>
+      </div>
+
+      <div class="rh-io">
+        <button type="button" class="rh-btn" id="rh-export">
+          <svg class="rh-i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 3.5v11"/><path d="M7.5 10 12 14.5 16.5 10"/>
+            <path d="M4 16.5v2A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-2"/>
+          </svg>
+          <span>Скачать JSON</span>
+        </button>
+        <button type="button" class="rh-btn" id="rh-import">
+          <svg class="rh-i" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <path d="M12 14.5v-11"/><path d="M7.5 8 12 3.5 16.5 8"/>
+            <path d="M4 16.5v2A1.5 1.5 0 0 0 5.5 20h13a1.5 1.5 0 0 0 1.5-1.5v-2"/>
+          </svg>
+          <span>Загрузить из файла…</span>
+        </button>
+        <input type="file" class="rh-file" id="rh-file" accept="application/json,.json">
+        <label class="rh-check">
+          <input type="checkbox" id="rh-replace">
+          <span>Заменить текущие правила</span>
+        </label>
+      </div>
+      <p class="rh-hint">
+        Без галочки правила из файла добавляются к текущим: дубликаты и уже покрытые
+        пропускаются. Если импорт что-то удаляет, сначала показывается сводка.
+      </p>
     </section>
   </main>
 
+  <script src="../lib/text.js"></script>
   <script src="../lib/rules.js"></script>
+  <script src="../lib/suggestions.js"></script>
+  <script src="../ui/icons.js"></script>
+  <script src="../ui/status.js"></script>
+  <script src="../ui/rules-list.js"></script>
   <script src="options.js"></script>
 </body>
 </html>

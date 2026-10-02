@@ -7,7 +7,7 @@
 - Ветки: `main` (только релизы), `dev` (интеграция); фича-ветки от `dev` на каждую фазу.
 - Влитие фичи в `dev` — merge `--no-ff`; при релизе — `dev → main` + тег `v1.0.0`.
 - Коммиты: русские, префиксы `feat:`, `fix:`, `docs:`, `chore:`.
-- `.gitignore`: `.DS_Store`, `node_modules/`, `*.log`, `.idea/`, `.vscode/`, `Thumbs.db`.
+- `.gitignore`: `.DS_Store`, `node_modules/`, `*.log`, `.idea/`, `.vscode/`, `Thumbs.db`, `.agents/`, `skills-lock.json`.
 - Публичный репозиторий GitHub `rasp-hide` — по договорённости (remote/настройки — отдельно, перед CI).
 
 ## 1. Фазы
