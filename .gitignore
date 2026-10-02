@@ -6,3 +6,4 @@ node_modules/
 Thumbs.db
 .agents/
 skills-lock.json
+dist/
