@@ -20,10 +20,21 @@ function makeChromeMock(initialRules = []) {
         get(key, cb) {
           const keys = Array.isArray(key) ? key : [key];
           const out = {};
-          for (const k of keys) out[k] = JSON.parse(JSON.stringify(state[k]));
+          for (const k of keys) {
+            if (state[k] !== undefined) out[k] = JSON.parse(JSON.stringify(state[k]));
+          }
           cb(out);
         },
         set(patch, cb) {
+          // Квота sync на ключ, как в Chrome: ключ + JSON значения в UTF-8.
+          const overQuota = Object.keys(patch).some((k) =>
+            Buffer.byteLength(k + JSON.stringify(patch[k]), 'utf8') > 8192);
+          if (overQuota) {
+            chrome.runtime.lastError = { message: 'QUOTA_BYTES_PER_ITEM quota exceeded' };
+            cb();
+            chrome.runtime.lastError = null;
+            return;
+          }
           if (failNextSet) {
             // Как в Chrome: lastError выставлен на время коллбэка и снимается
             // рантаймом сразу после возврата — код под тестом его не чистит.
@@ -42,7 +53,9 @@ function makeChromeMock(initialRules = []) {
   };
   return {
     chrome,
-    rules: () => state.rules,
+    state,
+    // Набор целиком — все части хранилища по порядку (см. R.RULE_KEYS).
+    rules: () => R.RULE_KEYS.flatMap((k) => state[k] || []),
     failNextSet: () => {
       failNextSet = true;
     },
@@ -165,6 +178,83 @@ t('planAdd: лимит 100', () => {
   const plan = R.planAdd(rule('Еще один'), rules);
   assert.strictEqual(plan.status, 'limit');
   assert.strictEqual(plan.current, 100);
+});
+
+/* ---------- Хранение частями ---------- */
+
+/** @returns {number} размер значения так, как его считает квота sync (UTF-8) */
+function syncBytes(key, value) {
+  return Buffer.byteLength(key + JSON.stringify(value), 'utf8');
+}
+
+/** Сотня «тяжёлых» правил: длинная кириллица и преподаватель. */
+function heavyRules(n = R.MAX_RULES) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    out.push(R.sanitizeRule(rule('Иностранный язык (английский) подгруппа ' + i,
+      'Константинопольская-Щедрина А. В.')));
+  }
+  return out;
+}
+
+t('chunkRules: сотня длинных правил раскладывается в квоту sync', () => {
+  const rules = heavyRules();
+  // В один ключ это не влезает — ради этого набор и хранится частями.
+  assert.ok(syncBytes('rules', rules) > 8192, 'тест должен превышать квоту одного ключа');
+  const chunks = R.chunkRules(rules);
+  assert.ok(chunks && chunks.length <= R.RULE_KEYS.length, 'помещается во все части');
+  chunks.forEach((chunk, i) => {
+    assert.ok(syncBytes(R.RULE_KEYS[i], chunk) <= 8192, 'часть ' + i + ' в квоте ключа');
+  });
+  assert.deepStrictEqual(chunks.flat(), rules, 'порядок и содержимое сохранены');
+});
+
+t('chunkRules: неподъёмный набор — null (а не порча хранилища)', () => {
+  const huge = [R.sanitizeRule(rule('Я'.repeat(5000)))];
+  assert.strictEqual(R.chunkRules(huge), null);
+});
+
+t('saveRules/loadRules: сотня правил — запись и чтение по частям', async () => {
+  const mock = makeChromeMock([]);
+  install(mock);
+  const rules = heavyRules();
+  const saved = await R.saveRules(rules);
+  assert.strictEqual(saved.ok, true);
+  for (const key of R.RULE_KEYS) {
+    assert.ok(Array.isArray(mock.state[key]), key + ' записан');
+    assert.ok(syncBytes(key, mock.state[key]) <= 8192, key + ' в квоте ключа');
+  }
+  assert.deepStrictEqual(await R.loadRules(), rules);
+});
+
+t('saveRules: короткий набор после длинного не оставляет «хвостов»', async () => {
+  const mock = makeChromeMock([]);
+  install(mock);
+  await R.saveRules(heavyRules());
+  await R.saveRules([R.sanitizeRule(rule('Матан'))]);
+  assert.deepStrictEqual(mock.rules().map(R.formatRule), ['Матан — все преподаватели']);
+});
+
+t('loadRules: данные v1.0 в одном ключе rules читаются как есть', async () => {
+  const mock = makeChromeMock([rule('Матан', 'Иванов И. И.')]); // только ключ rules
+  install(mock);
+  assert.deepStrictEqual(await R.loadRules(),
+    [{ subject: 'Матан', teacher: 'Иванов И. И.', enabled: true }]);
+});
+
+t('hasRulesChange: изменение любой части набора', () => {
+  assert.ok(R.hasRulesChange({ rules: {} }));
+  assert.ok(R.hasRulesChange({ rules_2: {} }));
+  assert.ok(!R.hasRulesChange({ enabled: {}, style: {} }));
+  assert.ok(!R.hasRulesChange(null));
+});
+
+t('addRule: сотое правило записывается и при длинных названиях', async () => {
+  const mock = makeChromeMock(heavyRules(R.MAX_RULES - 1));
+  install(mock);
+  const res = await R.addRule(rule('Ещё один очень длинный предмет с кириллицей'));
+  assert.strictEqual(res.status, 'added');
+  assert.strictEqual((await R.loadRules()).length, R.MAX_RULES);
 });
 
 /* ---------- addRule ---------- */

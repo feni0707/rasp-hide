@@ -352,7 +352,7 @@
       }
       // Правила и тумблер могли измениться на странице расписания или в popup.
       if (area !== 'sync') return;
-      if (changes.rules) refresh();
+      if (R.hasRulesChange(changes)) refresh();
       if (changes.enabled || changes.style) loadSettings().then(applySettingsToForm);
     });
   }

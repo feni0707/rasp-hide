@@ -17,6 +17,7 @@
   'use strict';
 
   const M = global.RASP_HIDE_MATCHER;
+  const R = global.RASP_HIDE_RULES;
   const UI = global.RASP_HIDE_UI;
   const SUG = global.RASP_HIDE_SUGGESTIONS;
 
@@ -298,16 +299,17 @@
   }
 
   /**
-   * Загрузка настроек из chrome.storage.sync.
+   * Загрузка настроек из chrome.storage.sync. Правила лежат в нескольких
+   * ключах (см. lib/rules.js) — читаются одним get вместе с тумблером.
    * @returns {Promise<object>}
    */
   function loadSettings() {
     return new Promise((resolve) => {
-      chrome.storage.sync.get(['enabled', 'style', 'rules'], (res) => {
+      chrome.storage.sync.get(['enabled', 'style', ...R.RULE_KEYS], (res) => {
         settings = {
           enabled: res.enabled !== false,
           style: res.style === 'strike' ? 'strike' : 'placeholder',
-          rules: Array.isArray(res.rules) ? res.rules : [],
+          rules: R.rulesFromStorage(res),
         };
         lastCount = null; // настройки изменились — счётчик считается заново
         resolve(settings);

@@ -6,9 +6,10 @@
 
 const assert = require('assert');
 
-// Модули подключаются как в content script: matcher → ui → content.
+// Модули подключаются как в content script: text → matcher → rules → ui → content.
 require('../lib/text.js'); // общая нормализация — грузится первой, как в манифесте
 global.RASP_HIDE_MATCHER = require('../content/matcher.js');
+global.RASP_HIDE_RULES = require('../lib/rules.js');
 global.RASP_HIDE_UI = require('../content/ui.js');
 
 // Заглушка сборщика подсказок: content.js берёт ссылку один раз при загрузке,
@@ -404,6 +405,22 @@ async function testProcessCellsIgnoresNamelessPairs() {
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 0 }]);
 }
 
+async function testLoadSettingsReadsAllRuleChunks() {
+  // Набор правил лежит частями (lib/rules.js): content script читает все.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [rule('Физика')],
+    rules_1: [rule('Математика')],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика')]);
+  global.document = makeSchedule([cell]);
+  C.processCells();
+  assert.strictEqual(cell.children[0].style.display, 'none', 'правило из второй части применилось');
+}
+
 function makeTwoTeacherCell(subject) {
   const cell = makeNode('td', { class: 'cell' });
   const subj = makeNode('div', {}, [makeNode('span', { text: subject })]);
@@ -724,6 +741,7 @@ async function run() {
     ['processCells: оба преподавателя → шапка + одна «скрыто»', testProcessCellsFullHidePairByAllTeachers],
     ['processCells: «у всех» скрывает всю пару', testProcessCellsFullHidePairByAllTeachersRule],
     ['processCells: другой преподаватель не скрывает', testProcessCellsKeepsPairForOtherTeacher],
+    ['loadSettings: правила читаются из всех частей хранилища', testLoadSettingsReadsAllRuleChunks],
     ['fullRollback: полный откат', testFullRollback],
     ['processCells: при выключенном тумблере ничего не делает', testProcessCellsDoesNothingWhenDisabled],
     ['клетка позиционируется классом rh-cell, не инлайн-стилем', testCellPositionIsClassNotInlineStyle],

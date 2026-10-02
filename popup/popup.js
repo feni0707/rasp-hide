@@ -272,7 +272,7 @@
         return;
       }
       if (area !== 'sync') return;
-      if (changes.rules) refresh();
+      if (R.hasRulesChange(changes)) refresh();
       if (changes.enabled || changes.style) {
         loadSettings().then(applySettings);
         refreshPageState();
