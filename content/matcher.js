@@ -75,35 +75,48 @@
     return pairs;
   }
 
+  /** Ссылка на мероприятие: у него название — ссылка, а не <span>. */
+  const EVENT_LINK = 'a[href^="/event/"]';
+
   /**
-   * <span> с названием пары. Обычно он в первом <div> рядом с видом:
+   * Элемент с видимым названием в строке: <span> пары или ссылка мероприятия
+   * («<a href="/event/view.html?id=…">Код ТПУ …</a> (<b>ЛК</b>)»).
+   * @param {Element} el
+   * @returns {Element|null}
+   */
+  function nameElementIn(el) {
+    return el.querySelector('span') || el.querySelector(EVENT_LINK);
+  }
+
+  /**
+   * Элемент с названием пары. Обычно он в первом <div> рядом с видом:
    * «Название (<b>ЛК</b>)». У элективных дисциплин (физра) вид стоит
    * отдельной строкой, а название — в следующем <div> без преподавателя:
    * «(<b>ПР</b>)» / «<span>Элект.дисц.по ФКиС</span>».
    * @param {Element[]} pair
    * @returns {Element|null}
    */
-  function findNameSpan(pair) {
+  function findNameElement(pair) {
     const first = pair && pair[0];
     if (!first || typeof first.querySelector !== 'function') return null;
-    const span = first.querySelector('span');
-    if (span) return span;
+    const own = nameElementIn(first);
+    if (own) return own;
     const second = pair[1];
     if (!first.querySelector('b') || !second || second.tagName !== 'DIV' ||
       typeof second.querySelector !== 'function') return null;
     if (second.querySelector('a[href^="/user_"]')) return null;
-    return second.querySelector('span');
+    return nameElementIn(second);
   }
 
   /**
-   * Видимое короткое название пары (span.textContent) — см. findNameSpan.
+   * Видимое короткое название пары (textContent) — см. findNameElement.
    * @param {Element[]} pair
    * @returns {string|null} null, если названия нет (ОВ/ОС) — пара не скрываема.
    */
   function getPairName(pair) {
-    const span = findNameSpan(pair);
-    if (!span) return null;
-    const name = normalize(span.textContent);
+    const nameEl = findNameElement(pair);
+    if (!nameEl) return null;
+    const name = normalize(nameEl.textContent);
     return name || null;
   }
 
