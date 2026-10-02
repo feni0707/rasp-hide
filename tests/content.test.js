@@ -719,6 +719,42 @@ async function testRollbackFromStrikeRemovesStrike() {
   }
 }
 
+/* ---------- Hover-UI: решение по движению курсора ---------- */
+
+function testPointerActionTable() {
+  const UI = global.RASP_HIDE_UI;
+  const base = { onPair: false, sameAsActive: false, hasActive: true, inActiveCell: false, menuOpen: false };
+  const act = (over) => UI.pointerAction({ ...base, ...over });
+
+  // Курсор перешёл с пары на её кнопку или меню (они не элементы пары,
+  // но лежат в её клетке) — показ держится.
+  assert.strictEqual(act({ inActiveCell: true }), 'hold');
+  assert.strictEqual(act({ inActiveCell: true, menuOpen: true }), 'hold');
+  // Ушёл из клетки — с кнопки, с меню, откуда угодно: скрыть. Раньше уход
+  // с кнопки и уход при открытом меню не обрабатывались — UI висел навсегда.
+  assert.strictEqual(act({}), 'leave');
+  assert.strictEqual(act({ menuOpen: true }), 'leave');
+  // Та же пара — обновить кнопку под элемент.
+  assert.strictEqual(act({ onPair: true, sameAsActive: true, inActiveCell: true }), 'refresh');
+  // Соседняя пара той же клетки: без меню — переключиться, с открытым меню — держать меню.
+  assert.strictEqual(act({ onPair: true, inActiveCell: true }), 'switch');
+  assert.strictEqual(act({ onPair: true, inActiveCell: true, menuOpen: true }), 'hold');
+  // Пара в другой клетке — переключиться (показанная уйдёт по таймеру).
+  assert.strictEqual(act({ onPair: true }), 'switch');
+  assert.strictEqual(act({ onPair: true, menuOpen: true }), 'switch');
+  // Ничего не показано.
+  assert.strictEqual(act({ hasActive: false }), 'idle');
+  assert.strictEqual(act({ hasActive: false, onPair: true }), 'switch');
+}
+
+function testHoverDelays() {
+  const UI = global.RASP_HIDE_UI;
+  // Кнопка уходит почти сразу, открытое меню — с запасом на промах, но
+  // не дольше пары секунд.
+  assert.ok(UI.HIDE_DELAY_MS <= 500, 'кнопка');
+  assert.ok(UI.MENU_HIDE_DELAY_MS > UI.HIDE_DELAY_MS && UI.MENU_HIDE_DELAY_MS <= 2000, 'меню');
+}
+
 /* ---------- Запуск ---------- */
 
 async function run() {
@@ -750,6 +786,8 @@ async function run() {
     ['processCells: идемпотентность hover-кнопок', testProcessCellsIdempotentHoverButtons],
     ['переключение стиля: strike → placeholder снимает зачёркивание', testStrikeToPlaceholderRemovesStrike],
     ['полный откат: strike снимается при OFF', testRollbackFromStrikeRemovesStrike],
+    ['hover: решение по движению курсора (уход из клетки скрывает)', testPointerActionTable],
+    ['hover: задержки скрытия кнопки и меню', testHoverDelays],
   ];
   let failed = 0;
   for (const [name, fn] of tests) {
