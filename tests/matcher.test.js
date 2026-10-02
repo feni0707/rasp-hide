@@ -180,6 +180,26 @@ function testPairNameWithoutSubject() {
   assert.strictEqual(M.getPairName(group), null);
 }
 
+function testPairNameOnSeparateLine() {
+  // Элективная физра: «(ПР)» отдельной строкой, название — в следующем <div>,
+  // преподавателя нет.
+  const cell = el('td', { class: 'cell' }, [
+    el('div', {}, [el('b', { text: 'ПР' })]),
+    el('div', {}, [el('span', { text: 'Элект.дисц.по ФКиС' })]),
+  ]);
+  const pairs = M.splitIntoPairs(cell.children);
+  assert.strictEqual(pairs.length, 1, 'вид и название — одна пара');
+  assert.strictEqual(M.getPairName(pairs[0]), 'Элект.дисц.по ФКиС');
+  assert.strictEqual(M.getPairType(pairs[0]), 'ПР');
+  assert.deepStrictEqual(M.getPairTeachers(pairs[0]), []);
+  // Строка с преподавателем названием не считается.
+  const withTeacher = [
+    el('div', {}, [el('b', { text: 'ПР' })]),
+    el('div', {}, [el('span', { text: 'x' }), el('a', { href: '/user_1', text: 'Иванов И. И.' })]),
+  ];
+  assert.strictEqual(M.getPairName(withTeacher), null);
+}
+
 /* ---------- splitPairIntoBlocks ---------- */
 
 function testSplitBlocksSingleTeacher() {
@@ -413,6 +433,7 @@ const tests = [
   ['getBlockTeacher: ФИО / null', testBlockTeacher],
   ['getPairName: название', testPairName],
   ['getPairName: без названия (ОВ/ОС) — null', testPairNameWithoutSubject],
+  ['getPairName: название отдельной строкой (физра)', testPairNameOnSeparateLine],
   ['getPairTeachers: ФИО / пусто', testPairTeachers],
   ['getPairTeachers: несколько преподавателей', testPairTeachersMultiple],
   ['getPairTeachers: без дубликатов', testPairTeachersUnique],

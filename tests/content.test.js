@@ -469,6 +469,25 @@ async function testProcessCellsIgnoresNamelessPairs() {
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 0 }]);
 }
 
+async function testProcessCellsHidesNameOnSeparateLine() {
+  // Физра: «(ПР)» и название в разных <div>, без преподавателя — скрывается целиком.
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Элект.дисц.по ФКиС')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const typeDiv = makeNode('div', {}, [makeNode('b', { text: 'ПР' })]);
+  const nameDiv = makeNode('div', {}, [makeNode('span', { text: 'Элект.дисц.по ФКиС' })]);
+  const cell = makeCell([[typeDiv, nameDiv]]);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  assert.strictEqual(typeDiv.style.display, 'none', 'строка вида скрыта');
+  assert.strictEqual(nameDiv.style.display, 'none', 'строка названия скрыта');
+  assert.strictEqual(cell.children.filter((c) => c.classList.contains('rh-placeholder')).length, 1);
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
 async function testProcessCellsHidesOnlyMatchingType() {
   // «Лекции у всех»: лекция предмета скрыта, практика того же предмета — нет.
   const mock = makeChromeMock({
@@ -871,6 +890,7 @@ async function run() {
     ['переключение стиля: strike не удаляет плейсхолдеры', testStrikeRunDoesNotRemovePlaceholders],
     ['processCells: счётчик и sendMessage', testProcessCellsCountsAndSends],
     ['processCells: ОВ/ОС не скрывается', testProcessCellsIgnoresNamelessPairs],
+    ['processCells: название отдельной строкой (физра)', testProcessCellsHidesNameOnSeparateLine],
     ['processCells: второй преподаватель скрывает только свой блок', testProcessCellsHidesSecondTeacherBlock],
     ['processCells: второй преподаватель скрывает блок (strike)', testProcessCellsHidesSecondTeacherBlockStrike],
     ['processCells: оба преподавателя → шапка + одна «скрыто»', testProcessCellsFullHidePairByAllTeachers],
