@@ -26,6 +26,16 @@
 - **Экспорт и импорт правил** в JSON: файл можно сохранить на диск и перенести
   в другой профиль или браузер (слияние или замена набора, с подтверждением).
 
+## Скриншоты
+
+![Меню «Скрыть» у пары: только практики или все занятия, у одного преподавателя или у всех](store/screenshot-1-menu.png)
+
+![Скрытые пары с пометкой «скрыто»; подсветка текущего дня сохраняется](store/screenshot-2-hidden.png)
+
+![Окно расширения по клику на иконку](store/screenshot-3-popup.png)
+
+![Страница настроек](store/screenshot-4-options.png)
+
 ## Матчинг
 
 - Точное совпадение **видимого** короткого названия предмета (подгруппы различаются: `АЯ д/акад.целей.A1.1` ≠ `АЯ д/акад.целей.B1`).
@@ -70,7 +80,8 @@ npm run pack   # архив для Chrome Web Store: dist/rasp-hide-<верси�
 ```
 
 Тексты и чек-лист для публикации — [docs/STORE_LISTING.md](docs/STORE_LISTING.md)
-и [docs/STORE_CHECKLIST.md](docs/STORE_CHECKLIST.md).
+и [docs/STORE_CHECKLIST.md](docs/STORE_CHECKLIST.md); картинки для витрины (скриншоты,
+промо, исходник логотипа) — в `store/`, в пакет расширения они не входят.
 
 Структура и схема DOM сайта описаны в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md),
 требования — в [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md), процесс — в [docs/PLAN.md](docs/PLAN.md).
