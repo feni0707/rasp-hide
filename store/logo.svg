@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96" fill="none" role="img" aria-labelledby="t">
+  <title id="t">Rasp Hide</title>
+  <!-- Плитка -->
+  <rect width="96" height="96" rx="22" fill="#0d9488"/>
+  <!-- Скрытая пара: пунктирный контур -->
+  <rect x="16.25" y="16.25" width="27.5" height="15.5" rx="2.75" stroke="#a8dbd5" stroke-width="2.5" stroke-dasharray="6 4" pathLength="100"/>
+  <!-- Видимые пары -->
+  <rect x="51" y="15" width="30" height="18" rx="4" fill="#ffffff"/>
+  <rect x="15" y="39" width="30" height="18" rx="4" fill="#ffffff"/>
+  <rect x="51" y="39" width="30" height="18" rx="4" fill="#ffffff"/>
+  <rect x="15" y="63" width="30" height="18" rx="4" fill="#ffffff"/>
+  <rect x="51" y="63" width="30" height="18" rx="4" fill="#ffffff"/>
+</svg>
