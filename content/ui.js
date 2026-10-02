@@ -1,7 +1,8 @@
 /**
  * Hover-UI (фаза 5): кнопка «Скрыть»/«Вернуть» у пары, мини-меню
- * с пунктом на каждого преподавателя + «у всех» + «Отмена»,
- * подтверждение поглощения, плейсхолдер «скрыто», очистка rh-* элементов.
+ * с выбором вида («Только лекции» / «Все занятия»), пунктом на каждого
+ * преподавателя + «у всех» + «Отмена», подтверждение поглощения,
+ * плейсхолдер «скрыто», очистка rh-* элементов.
  * Все добавляемые элементы имеют класс с префиксом rh- и регистрируются
  * для полного отката (глобальный OFF).
  *
@@ -91,7 +92,15 @@
       '.rh-menu-item:hover{background:#f3f4f6;}' +
       '.rh-menu-item--danger{color:#b91c1c;}' +
       '.rh-menu-title{font-weight:600;padding:4px 8px;color:#374151;}' +
-      '.rh-hover-btn:focus-visible,.rh-menu-item:focus-visible{' +
+      // Выбор вида: «Только лекции» / «Все занятия» — сегментный переключатель.
+      '.rh-menu-scope{display:flex;gap:2px;margin:0 4px 4px;padding:2px;' +
+        'background:#f1f5f9;border:1px solid #e2e8f0;border-radius:6px;}' +
+      '.rh-menu-scope-btn{flex:1;background:none;border:0;border-radius:4px;' +
+        'padding:3px 8px;font-size:11px;line-height:1.4;color:#475569;cursor:pointer;white-space:nowrap;}' +
+      '.rh-menu-scope-btn:hover{color:#0f172a;}' +
+      '.rh-menu-scope-btn[aria-pressed="true"]{background:#fff;color:#0f172a;font-weight:600;' +
+        'box-shadow:0 1px 2px rgba(15,23,42,.12);}' +
+      '.rh-hover-btn:focus-visible,.rh-menu-item:focus-visible,.rh-menu-scope-btn:focus-visible{' +
         'outline:2px solid #0d9488;outline-offset:1px;}' +
       '.rh-menu-absorbed{padding:2px 8px;color:#6b7280;word-break:break-word;}' +
       '.rh-menu-status{padding:4px 8px;color:#b91c1c;}' +
@@ -565,6 +574,7 @@
       pm, cell, hoverBtn, menu,
       header: pm.pair[0], // стабильный ключ (узел шапки пары)
       mode: 'hide', blockIdx: null, hideTimer: null,
+      scopeAll: false, // в меню выбрано «Все занятия», а не только вид этой пары
       bound: [], // элементы, на которые повешен hover (для очистки при пересборе)
     };
     buttonControllers.set(hoverBtn, c);
@@ -635,6 +645,7 @@
       if (pm.name == null) continue; // ОВ/ОС в hover-UI не участвуют
       let c = controllerByHeader.get(pm.pair[0]);
       if (!c) c = makeController(pm);
+      c.pm = pm; // свежие метаданные прогона: блоки, скрытость, преподаватели
       bindHoverTargets(pm, c, pairByEl, blockByEl);
     }
   }
@@ -667,16 +678,20 @@
   }
 
   /**
-   * Открытие мини-меню скрытия пары: пункт на каждого преподавателя,
-   * «у всех»/«Скрыть пару» и «Отмена».
+   * Открытие мини-меню скрытия пары: выбор вида (если у пары он есть),
+   * пункт на каждого преподавателя, «у всех»/«Скрыть пару» и «Отмена».
+   * По умолчанию скрывается только вид этой пары (навели на лекцию —
+   * скрываются лекции); «Все занятия» — переключателем.
    * @param {object} c
    */
   function openHideMenu(c) {
     const menu = c.menu;
     clearMenu(menu);
+    c.scopeAll = false;
     const name = c.pm.name;
     const teachers = c.pm.teachers;
     addTitle(menu, name);
+    if (c.pm.type) addScopeToggle(c);
     if (teachers.length === 0) {
       addMenuItem(menu, 'Скрыть пару', () => hideAction(c, null));
     } else {
@@ -691,12 +706,49 @@
   }
 
   /**
+   * Переключатель вида в меню: «Только лекции» / «Все занятия».
+   * Состояние — aria-pressed на кнопках (меню не перерисовывается, фокус
+   * не теряется); пункты ниже берут его из c.scopeAll в момент клика.
+   * @param {object} c
+   */
+  function addScopeToggle(c) {
+    const group = document.createElement('div');
+    group.className = 'rh-menu-scope';
+    group.setAttribute('role', 'group');
+    group.setAttribute('aria-label', 'Что скрывать');
+    const options = [
+      { all: false, text: 'Только ' + R.typeLabel(c.pm.type) },
+      { all: true, text: 'Все занятия' },
+    ];
+    const buttons = [];
+    for (const opt of options) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'rh-menu-scope-btn';
+      btn.textContent = opt.text;
+      btn.setAttribute('aria-pressed', String(c.scopeAll === opt.all));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        c.scopeAll = opt.all;
+        buttons.forEach((b, i) => b.setAttribute('aria-pressed', String(options[i].all === opt.all)));
+      });
+      buttons.push(btn);
+      group.appendChild(btn);
+    }
+    c.menu.appendChild(registerRhElement(group));
+  }
+
+  /**
    * Добавление правила скрытия из пункта меню.
    * @param {object} c
    * @param {string|null} teacher - null = «у всех»
    */
   async function hideAction(c, teacher) {
-    const rule = { subject: c.pm.name, teacher };
+    const rule = {
+      subject: c.pm.name,
+      teacher,
+      type: c.scopeAll ? null : c.pm.type, // null — все виды занятий
+    };
     const res = await R.addRule(rule);
     handleAddResult(c, rule, res);
   }
@@ -816,19 +868,30 @@
   }
 
   /**
-   * Возврат пары/блока (кнопка «Вернуть»): удаляет самое специфичное правило.
+   * Возврат пары/блока (кнопка «Вернуть»): снимает правила, которые их скрывают.
+   * Если таких правил несколько (пересекаются: «у Иванова» и «лекции у всех»),
+   * сначала показывается список с подтверждением — «Вернуть» затронет
+   * и другие пары.
    * @param {object} c
    * @param {number|null} blockIdx - null = вся пара
    */
   async function doRestore(c, blockIdx) {
     const pm = c.pm;
-    let teacher = null;
-    if (blockIdx != null) {
-      teacher = pm.blockTeachers[blockIdx] || null;
-    } else if (pm.teachers.length) {
-      teacher = pm.teachers[0];
+    const target = {
+      subject: pm.name,
+      type: pm.type,
+      // Блок — его преподаватель; пара целиком — преподаватели всех блоков.
+      teachers: blockIdx != null ? [pm.blockTeachers[blockIdx] || null] : pm.blockTeachers,
+    };
+    const res = await R.restorePair(target);
+    if (res.status === 'confirm') {
+      renderConfirm(c, 'Вернуть — значит удалить правила:', res.rules, async () => {
+        const r2 = await R.restorePair(target, { confirmed: true });
+        if (r2.status === 'error') renderStatus(c, R.MSG_NOT_SAVED);
+        else hideController(c);
+      });
+      return;
     }
-    const res = await R.restorePair(pm.name, teacher);
     // hideController прячет и кнопку, и меню, поэтому вызывается только на
     // успешной ветке: иначе сообщение об ошибке всплывало бы без своей кнопки.
     if (res.status === 'none') renderStatus(c, 'Не найдено правило для возврата');

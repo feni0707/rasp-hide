@@ -77,6 +77,7 @@
     el.addButton.disabled = limitReached;
     el.subjectInput.disabled = limitReached;
     el.teacherInput.disabled = limitReached;
+    el.typeSelect.disabled = limitReached;
     LIST.renderList(el.rulesBox, rules, filter, {
       onToggle: actions.toggle,
       onDelete: actions.remove,
@@ -274,6 +275,7 @@
     el.addForm = document.getElementById('rh-add');
     el.subjectInput = document.getElementById('rh-subject');
     el.teacherInput = document.getElementById('rh-teacher');
+    el.typeSelect = document.getElementById('rh-type');
     el.addButton = document.getElementById('rh-add-btn');
     el.reset = document.getElementById('rh-reset');
     el.export = document.getElementById('rh-export');
@@ -286,6 +288,7 @@
 
     status.init();
     ioStatus.init();
+    LIST.fillTypeSelect(el.typeSelect);
 
     el.enabled.addEventListener('change', () => {
       saveSetting('enabled', el.enabled.checked).then((ok) => {
@@ -313,9 +316,10 @@
 
     el.addForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      actions.add(el.subjectInput.value, el.teacherInput.value, () => {
+      actions.add(el.subjectInput.value, el.teacherInput.value, el.typeSelect.value, () => {
         el.subjectInput.value = '';
         el.teacherInput.value = '';
+        el.typeSelect.value = '';
         el.subjectInput.focus();
       });
     });

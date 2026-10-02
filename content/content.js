@@ -175,6 +175,7 @@
       for (const pair of pairs) {
         const name = M.getPairName(pair);
         if (!name) continue; // ОВ/ОС — не скрываемые
+        const type = M.getPairType(pair); // ЛК/ПР/ЛБ — для правил по виду занятия
         const header = pair[0];
         const blocks = M.splitPairIntoBlocks(pair);
         const blockTeachers = blocks.map((b) => M.getBlockTeacher(b));
@@ -184,7 +185,7 @@
 
         if (blocks.length === 0) {
           // Пара без блоков преподавателей — скрываема только «у всех».
-          const matched = settings.rules.some((r) => M.matchRule(name, null, r));
+          const matched = settings.rules.some((r) => M.matchRule(name, null, r, type));
           if (matched) {
             applyPairStyle(header, true);
             if (settings.style === 'placeholder') attachPoints.push(pair[pair.length - 1]);
@@ -196,7 +197,7 @@
         } else {
           for (let bi = 0; bi < blocks.length; bi++) {
             const block = blocks[bi];
-            const matched = settings.rules.some((r) => M.matchRule(name, blockTeachers[bi], r));
+            const matched = settings.rules.some((r) => M.matchRule(name, blockTeachers[bi], r, type));
             if (matched) {
               for (const el of block) applyPairStyle(el, true);
               hiddenBlocks.push(true);
@@ -223,6 +224,7 @@
           cell,
           pair,
           name,
+          type,
           teachers: M.getPairTeachers(pair),
           blocks,
           blockTeachers,

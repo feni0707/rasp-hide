@@ -469,6 +469,40 @@ async function testProcessCellsIgnoresNamelessPairs() {
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 0 }]);
 }
 
+async function testProcessCellsHidesOnlyMatchingType() {
+  // «Лекции у всех»: лекция предмета скрыта, практика того же предмета — нет.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [{ subject: 'Математика', teacher: null, type: 'ЛК', enabled: true }],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const lecture = makeCell([pairDiv('Математика', { type: 'ЛК', teacher: 'Иванов И. И.' })]);
+  const practice = makeCell([pairDiv('Математика', { type: 'ПР', teacher: 'Иванов И. И.' })]);
+  global.document = makeSchedule([lecture, practice]);
+  C.processCells();
+
+  assert.strictEqual(lecture.children[0].style.display, 'none', 'лекция скрыта');
+  assert.strictEqual(practice.children[0].style.display, '', 'практика видна');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
+async function testProcessCellsRuleWithoutTypeHidesAllTypes() {
+  // Правило v1.0 (без вида) — «все занятия»: скрывает и лекции, и практики.
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const lecture = makeCell([pairDiv('Математика', { type: 'ЛК' })]);
+  const practice = makeCell([pairDiv('Математика', { type: 'ПР' })]);
+  global.document = makeSchedule([lecture, practice]);
+  C.processCells();
+
+  assert.strictEqual(lecture.children[0].style.display, 'none');
+  assert.strictEqual(practice.children[0].style.display, 'none');
+}
+
 async function testLoadSettingsReadsAllRuleChunks() {
   // Набор правил лежит частями (lib/rules.js): content script читает все.
   const mock = makeChromeMock({
@@ -842,6 +876,8 @@ async function run() {
     ['processCells: оба преподавателя → шапка + одна «скрыто»', testProcessCellsFullHidePairByAllTeachers],
     ['processCells: «у всех» скрывает всю пару', testProcessCellsFullHidePairByAllTeachersRule],
     ['processCells: другой преподаватель не скрывает', testProcessCellsKeepsPairForOtherTeacher],
+    ['processCells: «лекции» не скрывают практику того же предмета', testProcessCellsHidesOnlyMatchingType],
+    ['processCells: правило без вида скрывает все виды', testProcessCellsRuleWithoutTypeHidesAllTypes],
     ['loadSettings: правила читаются из всех частей хранилища', testLoadSettingsReadsAllRuleChunks],
     ['fullRollback: полный откат', testFullRollback],
     ['processCells: при выключенном тумблере ничего не делает', testProcessCellsDoesNothingWhenDisabled],

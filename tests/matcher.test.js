@@ -325,6 +325,41 @@ function testMatchEmptyName() {
   assert.strictEqual(M.matchRule(null, null, rule('ОВ')), false);
 }
 
+/* ---------- Вид занятия ---------- */
+
+function testPairType() {
+  // Шапка как на сайте: <div><span>Название</span> (<b title="Лекция">ЛК</b>)</div>.
+  const lecture = M.splitIntoPairs(makeCell([pairDiv('Математика', { type: 'ЛК' })]).children)[0];
+  assert.strictEqual(M.getPairType(lecture), 'ЛК');
+  const lab = M.splitIntoPairs(makeCell([pairDiv('Физика', { type: ' ЛБ ' })]).children)[0];
+  assert.strictEqual(M.getPairType(lab), 'ЛБ', 'видимый текст нормализуется');
+  // Шапка без <b> — вид неизвестен.
+  const noType = [el('div', {}, [el('span', { text: 'Математика' })])];
+  assert.strictEqual(M.getPairType(noType), null);
+}
+
+function testMatchByType() {
+  const lectures = { subject: 'Математика', teacher: null, type: 'ЛК', enabled: true };
+  assert.strictEqual(M.matchRule('Математика', null, lectures, 'ЛК'), true, 'лекция');
+  assert.strictEqual(M.matchRule('Математика', null, lectures, 'ПР'), false, 'практика того же предмета');
+  assert.strictEqual(M.matchRule('Математика', null, lectures, null), false, 'вид пары неизвестен');
+  assert.strictEqual(M.matchRule('Математика', null, lectures), false, 'вид не передан');
+}
+
+function testMatchWithoutTypeMatchesAnyType() {
+  // Правило без вида (в т.ч. сохранённое v1.0) — «все занятия».
+  for (const type of ['ЛК', 'ПР', 'ЛБ', null]) {
+    assert.strictEqual(M.matchRule('Математика', null, rule('Математика'), type), true, String(type));
+  }
+}
+
+function testMatchTypeAndTeacher() {
+  const r = { subject: 'Математика', teacher: 'Иванов И. И.', type: 'ПР', enabled: true };
+  assert.strictEqual(M.matchRule('Математика', 'Иванов И. И.', r, 'ПР'), true);
+  assert.strictEqual(M.matchRule('Математика', 'Иванов И. И.', r, 'ЛК'), false);
+  assert.strictEqual(M.matchRule('Математика', 'Петров П. П.', r, 'ПР'), false);
+}
+
 /* ---------- isCellFullyHidden ---------- */
 
 function testCellFullyHiddenAllHidden() {
@@ -389,6 +424,10 @@ const tests = [
   ['matchRule: нормализация пробелов/NBSP', testMatchNormalizedWhitespace],
   ['matchRule: выключенное правило', testMatchDisabledRule],
   ['matchRule: пустое название не матчится', testMatchEmptyName],
+  ['getPairType: ЛК/ЛБ из <b> шапки, без <b> — null', testPairType],
+  ['matchRule: вид занятия', testMatchByType],
+  ['matchRule: правило без вида — все виды', testMatchWithoutTypeMatchesAnyType],
+  ['matchRule: вид и преподаватель вместе', testMatchTypeAndTeacher],
   ['isCellFullyHidden: все скрыты', testCellFullyHiddenAllHidden],
   ['isCellFullyHidden: одна видимая', testCellNotFullyHiddenWhenOneVisible],
   ['isCellFullyHidden: плейсхолдер', testCellFullyHiddenWithPlaceholder],
