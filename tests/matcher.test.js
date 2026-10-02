@@ -212,6 +212,17 @@ function testSplitBlocksOnlyHeader() {
   assert.deepStrictEqual(M.splitPairIntoBlocks(pair), []);
 }
 
+function testSplitBlocksTrailingHrNotABlock() {
+  // Замыкающий <hr> — разделитель со следующей парой, а не блок без преподавателя.
+  const cell = makeCell(
+    [pairDiv('Математика', { teacher: 'Иванов И. И.' }), pairDiv('Физика', { teacher: 'Петров П. П.' })],
+    true
+  );
+  const pair = M.splitIntoPairs(cell.children)[0];
+  assert.strictEqual(pair[pair.length - 1].tagName, 'HR', '<hr> остаётся в паре');
+  assert.deepStrictEqual(M.splitPairIntoBlocks(pair), [[pair[1]]]);
+}
+
 /* ---------- getBlockTeacher ---------- */
 
 function testBlockTeacher() {
@@ -410,6 +421,7 @@ const tests = [
   ['splitPairIntoBlocks: один преподаватель', testSplitBlocksSingleTeacher],
   ['splitPairIntoBlocks: два преподавателя (<hr> во 2-м блоке)', testSplitBlocksTwoTeachers],
   ['splitPairIntoBlocks: без преподавателей', testSplitBlocksOnlyHeader],
+  ['splitPairIntoBlocks: замыкающий <hr> — не блок', testSplitBlocksTrailingHrNotABlock],
   ['getBlockTeacher: ФИО / null', testBlockTeacher],
   ['getPairName: название', testPairName],
   ['getPairName: без названия (ОВ/ОС) — null', testPairNameWithoutSubject],

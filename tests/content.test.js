@@ -86,6 +86,12 @@ function makeNode(tag, attrs = {}, children = []) {
     tagName: String(tag).toUpperCase(),
     children: [],
     parentNode: null,
+    // Следующий сосед, как в DOM: без него insertBefore уводил бы вставку в конец.
+    get nextSibling() {
+      if (!this.parentNode) return null;
+      const siblings = this.parentNode.children;
+      return siblings[siblings.indexOf(this) + 1] || null;
+    },
     style: makeStyle(),
     _attrs: { ...attrs },
     classList,
@@ -529,6 +535,44 @@ function makeTwoTeacherCell(subject) {
   return { cell, subj, t1, hr, t2 };
 }
 
+async function testProcessCellsHidesWholePairBeforeSeparator() {
+  // Две разные пары в клетке через <hr>. Правило «у конкретного преподавателя»
+  // по единственному преподавателю верхней пары скрывает её целиком, с шапкой:
+  // замыкающий <hr> — не блок без преподавателя, скрытию шапки не мешает.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [rule('Практ.курс АЯ. А1.2', 'Ануфриева Т. Н.')],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([
+    pairDiv('Практ.курс АЯ. А1.2', { teacher: 'Ануфриева Т. Н.' }),
+    pairDiv('АЯ д/акад.целей.В1', { teacher: 'Макаровских А. В.' }),
+  ], true);
+  global.document = makeSchedule([cell]);
+  const [header, teacher, hr, header2, teacher2] = cell.children;
+
+  C.processCells();
+
+  assert.strictEqual(header.style.display, 'none', 'шапка верхней пары скрыта');
+  assert.strictEqual(teacher.style.display, 'none', 'преподаватель скрыт');
+  assert.strictEqual(hr.style.display, 'none', 'разделитель уходит вместе с парой');
+  assert.strictEqual(header2.style.display, '', 'нижняя пара видима');
+  assert.strictEqual(teacher2.style.display, '', 'преподаватель нижней пары видим');
+  const phs = cell.children.filter((c) => c.classList.contains('rh-placeholder'));
+  assert.strictEqual(phs.length, 1, 'одна «скрыто» на всю пару');
+  assert.strictEqual(cell.children.indexOf(phs[0]), 3, 'плейсхолдер после разделителя');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+
+  // Правило снято — пара возвращается целиком.
+  mock.state.rules = [];
+  await C.loadSettings();
+  C.processCells();
+  for (const el of [header, teacher, hr]) assert.strictEqual(el.style.display, '');
+  assert.ok(!cell.children.some((c) => c.classList.contains('rh-placeholder')));
+}
+
 async function testProcessCellsHidesSecondTeacherBlock() {
   // Правило по второму преподавателю скрывает ТОЛЬКО его блок: шапка и первый
   // преподаватель остаются видимыми (поблочное скрытие одной пары).
@@ -863,6 +907,7 @@ async function run() {
     ['hidePair: strike', testHidePairStrike],
     ['<hr> скрывается и восстанавливается (placeholder)', testHrHiddenWithPair],
     ['<hr> не трогается в strike', testHrKeptInStrike],
+    ['processCells: «у преподавателя» скрывает пару с шапкой перед разделителем', testProcessCellsHidesWholePairBeforeSeparator],
     ['restorePair: возврат', testRestorePair],
     ['фон: при полном скрытии — как у пустой клетки', testCellBackgroundEmptyWhenFullyHidden],
     ['фон: клетка текущего дня остаётся подсвеченной', testCellBackgroundTodayStaysHighlighted],
