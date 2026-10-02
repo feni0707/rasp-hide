@@ -3,7 +3,7 @@
  * Прогон по #raspisanie-table td.cell, скрытие пар (плейсхолдер/зачёркивание),
  * <hr> пары скрывается/восстанавливается вместе с парой в placeholder-режиме;
  * в strike-режиме <hr> не трогается (разделитель преподавателей остаётся),
- * фон клетки (transparent при полном скрытии, только placeholder),
+ * фон клетки (при полном скрытии — как у пустой клетки, только placeholder),
  * плейсхолдеры синхронизируются только в placeholder-режиме — случайный
  * strike-прогон (MutationObserver/debounce) их не уничтожает, поэтому
  * переключение стиля не теряет «скрыто» и не ломает фон клетки,
@@ -131,8 +131,12 @@
   }
 
   /**
-   * Фон клетки: transparent при полном скрытии (только placeholder);
-   * в strike фон не трогается никогда.
+   * Фон клетки при полном скрытии (только placeholder) — как у пустой клетки.
+   * Цвет пары сайт задаёт инлайном (`background-color: … !important`), а фон
+   * пустой клетки — своими стилями: белый, у текущего дня — `.cur-day`
+   * (#e8f5e9 !important). Поэтому инлайновый фон снимается, а не подменяется:
+   * цвет пустой клетки рисует сам сайт, в том числе подсветку сегодняшнего дня.
+   * В strike фон не трогается никогда.
    * @param {HTMLElement} cell
    */
   function updateCellBackground(cell) {
@@ -142,7 +146,8 @@
     }
     if (M.isCellFullyHidden(cell)) {
       cacheCellStyle(cell);
-      cell.style.setProperty('background-color', 'transparent', 'important');
+      cell.style.removeProperty('background-color');
+      cell.style.removeProperty('background');
     } else {
       restoreCellStyle(cell);
     }

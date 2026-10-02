@@ -27,6 +27,39 @@ const C = require('../content/content.js');
 
 /* ---------- Мок DOM ---------- */
 
+// Инлайн-стиль, связанный с атрибутом style, как в браузере: setProperty /
+// removeProperty меняют атрибут, setAttribute('style') разбирается в свойства.
+function makeStyle() {
+  const props = new Map(); // имя → { value, important }
+  const style = {
+    setProperty(name, value, priority) {
+      if (value === '' || value == null) props.delete(name);
+      else props.set(name, { value: String(value), important: priority === 'important' });
+    },
+    removeProperty(name) { props.delete(name); },
+    getPropertyValue(name) { return props.has(name) ? props.get(name).value : ''; },
+    getPropertyPriority(name) { return props.has(name) && props.get(name).important ? 'important' : ''; },
+    _serialize() {
+      return [...props].map(([k, v]) => k + ': ' + v.value + (v.important ? ' !important' : '')).join('; ');
+    },
+    _parse(text) {
+      props.clear();
+      for (const part of String(text).split(';')) {
+        const m = part.match(/^\s*([\w-]+)\s*:\s*(.*?)\s*(!important)?\s*$/);
+        if (m) props.set(m[1], { value: m[2], important: !!m[3] });
+      }
+    },
+  };
+  // el.style.display = '' удаляет свойство — как в CSSOM.
+  for (const prop of ['display', 'position']) {
+    Object.defineProperty(style, prop, {
+      get() { return style.getPropertyValue(prop); },
+      set(v) { style.setProperty(prop, v); },
+    });
+  }
+  return style;
+}
+
 // Проверка соответствия селектора (поддержка используемых в matcher.js).
 function matchesSel(node, sel) {
   if (sel === 'b') return node.tagName === 'B';
@@ -53,19 +86,27 @@ function makeNode(tag, attrs = {}, children = []) {
     tagName: String(tag).toUpperCase(),
     children: [],
     parentNode: null,
-    style: {
-      display: '',
-      setProperty(name, value, priority) {
-        this[name] = value + (priority ? ' !important' : '');
-      },
-    },
+    style: makeStyle(),
     _attrs: { ...attrs },
     classList,
     getAttribute(name) {
+      if (name === 'style') {
+        const text = this.style._serialize();
+        return text || (this._hadStyle ? '' : null);
+      }
       return Object.prototype.hasOwnProperty.call(this._attrs, name) ? this._attrs[name] : null;
     },
     setAttribute(name, value) {
+      if (name === 'style') {
+        this._hadStyle = true;
+        this.style._parse(value);
+        return;
+      }
       this._attrs[name] = String(value);
+    },
+    contains(other) {
+      for (let cur = other; cur; cur = cur.parentNode) if (cur === this) return true;
+      return false;
     },
     appendChild(child) {
       child.parentNode = this;
@@ -300,21 +341,44 @@ async function testRestorePair() {
 
 /* ---------- updateCellBackground ---------- */
 
-async function testCellBackgroundTransparentWhenFullyHidden() {
+// Цвет пары сайт задаёт инлайном с !important; у пустой клетки его нет.
+const PAIR_BG = 'background-color: rgba(98,130,32,0.2) !important';
+
+async function testCellBackgroundEmptyWhenFullyHidden() {
   const mock = makeChromeMock({ style: 'placeholder', rules: [] });
   global.chrome = mock.chrome;
   await C.loadSettings();
 
   const cell = makeCell([pairDiv('Математика')]);
-  cell.setAttribute('style', 'background-color: #fff');
+  cell.setAttribute('style', PAIR_BG);
   C.hidePair(M.splitIntoPairs(cell.children)[0], cell);
   C.updateCellBackground(cell);
-  assert.strictEqual(cell.style['background-color'], 'transparent !important');
+  // Инлайновый цвет пары снят, и ничего не подставлено вместо него: фон
+  // пустой клетки рисует сам сайт (белый, у текущего дня — .cur-day).
+  assert.strictEqual(cell.style.getPropertyValue('background-color'), '', 'цвет пары снят');
+  assert.strictEqual(cell.style.getPropertyValue('background'), '', 'и не подменён');
 
   // возврат — исходный фон восстановлен
   C.restorePair(M.splitIntoPairs(cell.children)[0], cell);
   C.updateCellBackground(cell);
-  assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff');
+  assert.strictEqual(cell.getAttribute('style'), PAIR_BG);
+}
+
+async function testCellBackgroundTodayStaysHighlighted() {
+  // Клетка текущего дня (.cur-day): при полном скрытии на ней не должно
+  // остаться инлайнового фона, который перебил бы подсветку дня сайта.
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Математика')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([pairDiv('Математика')]);
+  cell.className = 'cell cur-day';
+  cell.setAttribute('style', PAIR_BG);
+  global.document = makeSchedule([cell]);
+  C.processCells();
+  assert.ok(cell.classList.contains('cur-day'), 'класс дня сайта не тронут');
+  assert.strictEqual(cell.style.getPropertyValue('background-color'), '',
+    'инлайн не перебивает .cur-day { background-color: #e8f5e9 !important }');
 }
 
 async function testCellBackgroundKeptWhenOneVisible() {
@@ -323,10 +387,10 @@ async function testCellBackgroundKeptWhenOneVisible() {
   await C.loadSettings();
 
   const cell = makeCell([pairDiv('Математика'), pairDiv('Физика')], true);
-  cell.setAttribute('style', 'background-color: #fff');
+  cell.setAttribute('style', PAIR_BG);
   C.hidePair(M.splitIntoPairs(cell.children)[0], cell);
   C.updateCellBackground(cell);
-  assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff', 'фон не трогается');
+  assert.strictEqual(cell.getAttribute('style'), PAIR_BG, 'фон не трогается');
 }
 
 async function testCellBackgroundUntouchedInStrike() {
@@ -335,10 +399,10 @@ async function testCellBackgroundUntouchedInStrike() {
   await C.loadSettings();
 
   const cell = makeCell([pairDiv('Математика')]);
-  cell.setAttribute('style', 'background-color: #fff');
+  cell.setAttribute('style', PAIR_BG);
   C.hidePair(M.splitIntoPairs(cell.children)[0], cell);
   C.updateCellBackground(cell);
-  assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff', 'в strike фон не трогается');
+  assert.strictEqual(cell.getAttribute('style'), PAIR_BG, 'в strike фон не трогается');
 }
 
 async function testStrikeRunDoesNotRemovePlaceholders() {
@@ -350,7 +414,7 @@ async function testStrikeRunDoesNotRemovePlaceholders() {
   await C.loadSettings();
 
   const cell = makeCell([pairDiv('Математика')]);
-  cell.setAttribute('style', 'background-color: #fff');
+  cell.setAttribute('style', PAIR_BG);
   global.document = makeSchedule([cell]);
 
   C.processCells();
@@ -367,7 +431,7 @@ async function testStrikeRunDoesNotRemovePlaceholders() {
   const phs = cell.children.filter((c) => c.classList.contains('rh-placeholder'));
   assert.strictEqual(phs.length, 1, 'плейсхолдер не задвоился');
   assert.strictEqual(cell.children[0].style.display, 'none', 'пара остаётся скрытой');
-  assert.strictEqual(cell.style['background-color'], 'transparent !important', 'фон transparent после возврата');
+  assert.strictEqual(cell.style.getPropertyValue('background-color'), '', 'фон пустой клетки после возврата');
 }
 
 /* ---------- processCells / fullRollback ---------- */
@@ -555,7 +619,7 @@ async function testFullRollback() {
   await C.loadSettings();
 
   const cell = makeCell([pairDiv('Математика')]);
-  cell.setAttribute('style', 'background-color: #fff');
+  cell.setAttribute('style', PAIR_BG);
   global.document = makeSchedule([cell]);
 
   C.processCells();
@@ -565,7 +629,7 @@ async function testFullRollback() {
 
   assert.ok(!cell.children.some((c) => c.classList.contains('rh-placeholder')), 'rh-* удалены');
   for (const el of cell.children) assert.strictEqual(el.style.display, '');
-  assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff', 'фон восстановлен');
+  assert.strictEqual(cell.getAttribute('style'), PAIR_BG, 'фон восстановлен');
   assert.deepStrictEqual(mock.messages[mock.messages.length - 1], { type: 'off' });
 }
 
@@ -601,7 +665,7 @@ async function testCellPositionIsClassNotInlineStyle() {
   await C.loadSettings();
 
   const cell = makeCell([pairDiv('Математика', { teacher: 'Иванов И. И.' })]);
-  cell.setAttribute('style', 'background-color: #fff');
+  cell.setAttribute('style', PAIR_BG);
   global.document = makeSchedule([cell]);
 
   C.processCells();
@@ -610,7 +674,7 @@ async function testCellPositionIsClassNotInlineStyle() {
 
   C.fullRollback();
   assert.ok(!cell.classList.contains('rh-cell'), 'класс снимается при полном откате');
-  assert.strictEqual(cell.getAttribute('style'), 'background-color: #fff', 'стиль клетки исходный');
+  assert.strictEqual(cell.getAttribute('style'), PAIR_BG, 'стиль клетки исходный');
 }
 
 // Подсказки для ручного ввода: прогон запоминает увиденные названия и ФИО.
@@ -766,7 +830,8 @@ async function run() {
     ['<hr> скрывается и восстанавливается (placeholder)', testHrHiddenWithPair],
     ['<hr> не трогается в strike', testHrKeptInStrike],
     ['restorePair: возврат', testRestorePair],
-    ['фон: transparent при полном скрытии', testCellBackgroundTransparentWhenFullyHidden],
+    ['фон: при полном скрытии — как у пустой клетки', testCellBackgroundEmptyWhenFullyHidden],
+    ['фон: клетка текущего дня остаётся подсвеченной', testCellBackgroundTodayStaysHighlighted],
     ['фон: не трогается при видимой паре', testCellBackgroundKeptWhenOneVisible],
     ['фон: не трогается в strike', testCellBackgroundUntouchedInStrike],
     ['переключение стиля: strike не удаляет плейсхолдеры', testStrikeRunDoesNotRemovePlaceholders],
