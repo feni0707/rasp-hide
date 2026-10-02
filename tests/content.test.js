@@ -64,6 +64,9 @@ function makeStyle() {
 function matchesSel(node, sel) {
   if (sel === 'b') return node.tagName === 'B';
   if (sel === 'span') return node.tagName === 'SPAN';
+  if (sel === 'a[href^="/event/"]') {
+    return node.tagName === 'A' && String(node.getAttribute('href') || '').startsWith('/event/');
+  }
   if (sel === 'a[href^="/user_"]') {
     return (
       node.tagName === 'A' &&
@@ -491,6 +494,33 @@ async function testProcessCellsHidesNameOnSeparateLine() {
   assert.strictEqual(typeDiv.style.display, 'none', 'строка вида скрыта');
   assert.strictEqual(nameDiv.style.display, 'none', 'строка названия скрыта');
   assert.strictEqual(cell.children.filter((c) => c.classList.contains('rh-placeholder')).length, 1);
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
+async function testProcessCellsHidesEvent() {
+  // Мероприятие без преподавателя над обычной парой: скрывается только оно.
+  const name = 'Код ТПУ "Университет для инженерии и исследований "';
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule(name)] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const event = [
+    makeNode('div', {}, [
+      makeNode('a', { href: '/event/view.html?id=5298', text: name }),
+      makeNode('b', { text: 'ЛК' }),
+    ]),
+    makeNode('div', {}, [makeNode('a', { href: '/sooruzhenie_11', text: '10' })]),
+  ];
+  const lesson = pairDiv('"Код ТПУ"', { type: 'ЛК', teacher: 'Малыгина Н. И.' });
+  const cell = makeCell([event, lesson], true);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  assert.strictEqual(event[0].style.display, 'none', 'шапка мероприятия скрыта');
+  assert.strictEqual(event[1].style.display, 'none', 'место мероприятия скрыто');
+  assert.notStrictEqual(lesson[0].style.display, 'none', 'пара под ним видна');
+  assert.notStrictEqual(lesson[1].style.display, 'none');
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
 }
 
@@ -936,6 +966,7 @@ async function run() {
     ['processCells: счётчик и sendMessage', testProcessCellsCountsAndSends],
     ['processCells: ОВ/ОС не скрывается', testProcessCellsIgnoresNamelessPairs],
     ['processCells: название отдельной строкой (физра)', testProcessCellsHidesNameOnSeparateLine],
+    ['processCells: мероприятие (/event/) скрывается', testProcessCellsHidesEvent],
     ['processCells: второй преподаватель скрывает только свой блок', testProcessCellsHidesSecondTeacherBlock],
     ['processCells: второй преподаватель скрывает блок (strike)', testProcessCellsHidesSecondTeacherBlockStrike],
     ['processCells: оба преподавателя → шапка + одна «скрыто»', testProcessCellsFullHidePairByAllTeachers],

@@ -14,6 +14,9 @@ const M = require('../content/matcher.js');
 function matchesSel(node, sel) {
   if (sel === 'b') return node.tagName === 'B';
   if (sel === 'span') return node.tagName === 'SPAN';
+  if (sel === 'a[href^="/event/"]') {
+    return node.tagName === 'A' && String(node.getAttribute('href') || '').startsWith('/event/');
+  }
   if (sel === 'a[href^="/user_"]') {
     return (
       node.tagName === 'A' &&
@@ -198,6 +201,29 @@ function testPairNameOnSeparateLine() {
     el('div', {}, [el('span', { text: 'x' }), el('a', { href: '/user_1', text: 'Иванов И. И.' })]),
   ];
   assert.strictEqual(M.getPairName(withTeacher), null);
+}
+
+function testPairNameEvent() {
+  // Мероприятие: название — ссылка /event/, преподавателя нет; за ним через
+  // <hr> обычная пара с тем же местом.
+  const cell = el('td', { class: 'cell' }, [
+    el('div', {}, [
+      el('a', { href: '/event/view.html?id=5298', text: 'Код ТПУ "Университет для инженерии и исследований "' }),
+      el('b', { text: 'ЛК' }),
+    ]),
+    el('div', {}, [el('a', { href: '/sooruzhenie_11', text: '10' })]),
+    el('hr'),
+    el('div', {}, [el('span', { text: '"Код ТПУ"' }), el('b', { text: 'ЛК' })]),
+    el('div', {}, [el('a', { href: '/user_592789', text: 'Малыгина Н. И.' })]),
+  ]);
+  const pairs = M.splitIntoPairs(cell.children);
+  assert.strictEqual(pairs.length, 2);
+  assert.strictEqual(M.getPairName(pairs[0]), 'Код ТПУ "Университет для инженерии и исследований "');
+  assert.strictEqual(M.getPairType(pairs[0]), 'ЛК');
+  assert.deepStrictEqual(M.getPairTeachers(pairs[0]), []);
+  assert.strictEqual(M.getPairName(pairs[1]), '"Код ТПУ"');
+  // Прочие ссылки (корпус, аудитория) названием не считаются.
+  assert.strictEqual(M.getPairName([el('div', {}, [el('a', { href: '/sooruzhenie_11', text: '10' })])]), null);
 }
 
 /* ---------- splitPairIntoBlocks ---------- */
@@ -446,6 +472,7 @@ const tests = [
   ['getPairName: название', testPairName],
   ['getPairName: без названия (ОВ/ОС) — null', testPairNameWithoutSubject],
   ['getPairName: название отдельной строкой (физра)', testPairNameOnSeparateLine],
+  ['getPairName: мероприятие — ссылка /event/', testPairNameEvent],
   ['getPairTeachers: ФИО / пусто', testPairTeachers],
   ['getPairTeachers: несколько преподавателей', testPairTeachersMultiple],
   ['getPairTeachers: без дубликатов', testPairTeachersUnique],
