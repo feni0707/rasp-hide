@@ -23,7 +23,13 @@ global.document = {
     return node;
   },
   createElement(tag) {
-    const node = { tag, attrs: {}, children: [], className: '', textContent: '' };
+    const node = { tag, attrs: {}, children: [], className: '' };
+    // textContent = '' очищает узел — как в DOM (fillTypeSelect так и делает).
+    let text = '';
+    Object.defineProperty(node, 'textContent', {
+      get() { return text; },
+      set(v) { text = String(v); if (text === '') node.children = []; },
+    });
     node.setAttribute = (k, v) => { node.attrs[k] = v; };
     node.appendChild = (c) => { node.children.push(c); return c; };
     node.addEventListener = () => {};
@@ -92,6 +98,36 @@ t('teacherLabel: «все преподаватели» вместо пустот
   assert.strictEqual(LIST.teacherLabel(rule('Матан', 'Иванов И. И.')), 'Иванов И. И.');
 });
 
+t('sortRules: при одинаковых предмете и ФИО — «все занятия», затем ЛК, ПР, ЛБ', () => {
+  const typed = (type) => ({ subject: 'Матан', teacher: null, type, enabled: true });
+  const sorted = LIST.sortRules([typed('ЛБ'), typed('ПР'), typed('КСР'), typed(null), typed('ЛК')]);
+  assert.deepStrictEqual(sorted.map((r) => r.type), [null, 'ЛК', 'ПР', 'ЛБ', 'КСР']);
+});
+
+t('scopeLabel: вторая строка правила — преподаватель и вид явно', () => {
+  assert.strictEqual(LIST.scopeLabel(rule('Матан', null)), 'все преподаватели · все занятия');
+  assert.strictEqual(LIST.scopeLabel({ subject: 'Матан', teacher: 'Иванов И. И.', type: 'ЛК' }),
+    'Иванов И. И. · лекции');
+});
+
+t('matchesFilter: ищет и по виду занятия', () => {
+  const r = { subject: 'Матан', teacher: null, type: 'ЛК', enabled: true };
+  assert.ok(LIST.matchesFilter(r, 'лекц'));
+  assert.ok(LIST.matchesFilter(r, 'лк'));
+  assert.ok(!LIST.matchesFilter(rule('Матан', null), 'лекц'), '«все занятия» — не лекции');
+});
+
+t('fillTypeSelect: «Все занятия» первым, затем виды с кодом', () => {
+  const select = global.document.createElement('select');
+  LIST.fillTypeSelect(select);
+  assert.deepStrictEqual(select.children.map((o) => [o.value, o.textContent]), [
+    ['', 'Все занятия'],
+    ['ЛК', 'Лекции (ЛК)'],
+    ['ПР', 'Практики (ПР)'],
+    ['ЛБ', 'Лабораторные (ЛБ)'],
+  ]);
+});
+
 /* ---------- Иконки ---------- */
 
 t('icon: SVG скрыт от скринридера и не содержит эмодзи', () => {
@@ -142,9 +178,10 @@ for (const [page, script] of [
   t(page + ': каждое поле ввода подписано', () => {
     const html = read(page);
     // Плейсхолдер — не подпись: он исчезает при вводе. Нужен <label for>.
-    const ids = [...html.matchAll(/<input[^>]*\bid="([^"]+)"[^>]*>/g)]
+    const ids = [...html.matchAll(/<(?:input|select)[^>]*\bid="([^"]+)"[^>]*>/g)]
       .filter((m) => !/type="(checkbox|radio|file)"/.test(m[0]))
       .map((m) => m[1]);
+    assert.ok(ids.includes('rh-type'), 'выбор вида занятия тоже должен быть подписан');
     assert.ok(ids.length > 0, 'ожидались текстовые поля');
     for (const id of ids) {
       assert.ok(html.includes('for="' + id + '"'), page + ': нет <label for="' + id + '">');

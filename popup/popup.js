@@ -197,6 +197,7 @@
     el.addCancel = document.getElementById('rh-add-cancel');
     el.subjectInput = document.getElementById('rh-subject');
     el.teacherInput = document.getElementById('rh-teacher');
+    el.typeSelect = document.getElementById('rh-type');
     el.subjectList = document.getElementById('rh-subjects');
     el.teacherList = document.getElementById('rh-teachers');
     el.options = document.getElementById('rh-options');
@@ -205,6 +206,7 @@
     );
 
     status.init();
+    LIST.fillTypeSelect(el.typeSelect);
     el.addOpen.setAttribute('aria-expanded', 'false');
 
     el.enabled.addEventListener('change', () => {
@@ -241,9 +243,10 @@
     });
     el.addForm.addEventListener('submit', (e) => {
       e.preventDefault();
-      actions.add(el.subjectInput.value, el.teacherInput.value, () => {
+      actions.add(el.subjectInput.value, el.teacherInput.value, el.typeSelect.value, () => {
         el.subjectInput.value = '';
         el.teacherInput.value = '';
+        el.typeSelect.value = '';
         toggleAddForm(false);
       });
     });
@@ -272,7 +275,7 @@
         return;
       }
       if (area !== 'sync') return;
-      if (changes.rules) refresh();
+      if (R.hasRulesChange(changes)) refresh();
       if (changes.enabled || changes.style) {
         loadSettings().then(applySettings);
         refreshPageState();

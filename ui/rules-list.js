@@ -14,8 +14,20 @@
   const ICONS = global.RASP_HIDE_ICONS;
 
   /**
+   * Порядок вида занятия в списке: «все занятия», затем ЛК, ПР, ЛБ,
+   * затем незнакомые сайту виды по алфавиту.
+   * @param {string|null|undefined} type
+   * @returns {number}
+   */
+  function typeRank(type) {
+    if (type == null) return -1;
+    const idx = R.PAIR_TYPES.findIndex((t) => t.code === type);
+    return idx === -1 ? R.PAIR_TYPES.length : idx;
+  }
+
+  /**
    * Сортировка правил: алфавит предмета, «все» выше конкретных ФИО,
-   * затем по алфавиту ФИО.
+   * затем по алфавиту ФИО, затем вид занятия («все занятия» первыми).
    * @param {object[]} list
    * @returns {object[]} новый отсортированный массив
    */
@@ -23,25 +35,29 @@
     return [...list].sort((a, b) => {
       const bySubject = a.subject.localeCompare(b.subject, 'ru');
       if (bySubject !== 0) return bySubject;
-      if (a.teacher === null && b.teacher !== null) return -1;
-      if (a.teacher !== null && b.teacher === null) return 1;
-      return (a.teacher || '').localeCompare(b.teacher || '', 'ru');
+      if (a.teacher == null && b.teacher != null) return -1;
+      if (a.teacher != null && b.teacher == null) return 1;
+      const byTeacher = (a.teacher || '').localeCompare(b.teacher || '', 'ru');
+      if (byTeacher !== 0) return byTeacher;
+      const byType = typeRank(a.type) - typeRank(b.type);
+      if (byType !== 0) return byType;
+      return (a.type || '').localeCompare(b.type || '', 'ru');
     });
   }
 
   /**
    * Подходит ли правило под поисковый фильтр.
-   * Ищем и по предмету, и по ФИО: «покажи всё от Иванова» — такой же
-   * естественный запрос, как «покажи всё по матанализу».
+   * Ищем по предмету, ФИО и виду занятия: «покажи всё от Иванова» — такой же
+   * естественный запрос, как «покажи всё по матанализу» или «лекции».
    * @param {object} rule
    * @param {string} filter - уже нормализованный и в нижнем регистре
    * @returns {boolean}
    */
   function matchesFilter(rule, filter) {
     if (!filter) return true;
-    const subject = R.normalize(rule.subject).toLowerCase();
-    const teacher = R.normalize(rule.teacher || '').toLowerCase();
-    return subject.indexOf(filter) !== -1 || teacher.indexOf(filter) !== -1;
+    const fields = [rule.subject, rule.teacher || '', rule.type || '',
+      rule.type ? R.typeLabel(rule.type) : ''];
+    return fields.some((f) => R.normalize(f).toLowerCase().indexOf(filter) !== -1);
   }
 
   /**
@@ -50,7 +66,18 @@
    * @returns {string}
    */
   function teacherLabel(rule) {
-    return rule.teacher === null ? 'все преподаватели' : rule.teacher;
+    return rule.teacher == null ? 'все преподаватели' : rule.teacher;
+  }
+
+  /**
+   * Вторая строка правила в списке: кто и какие занятия —
+   * «Иванов И. И. · лекции», «все преподаватели · все занятия».
+   * Оба признака пишутся явно: «все занятия» у старых правил тоже видно.
+   * @param {object} rule
+   * @returns {string}
+   */
+  function scopeLabel(rule) {
+    return teacherLabel(rule) + ' · ' + R.typeLabel(rule.type);
   }
 
   /**
@@ -79,7 +106,7 @@
     subject.textContent = rule.subject;
     const teacher = document.createElement('span');
     teacher.className = 'rh-rule-teacher';
-    teacher.textContent = teacherLabel(rule);
+    teacher.textContent = scopeLabel(rule);
     body.appendChild(subject);
     body.appendChild(teacher);
 
@@ -234,11 +261,13 @@
        * Добавление правила вручную.
        * @param {string} subject
        * @param {string} teacherRaw - пустая строка = «у всех»
+       * @param {string} typeRaw - код вида (ЛК/ПР/ЛБ); пустая строка = «все занятия»
        * @param {Function} [onAdded] - вызывается только при успешном добавлении
        */
-      add(subject, teacherRaw, onAdded) {
+      add(subject, teacherRaw, typeRaw, onAdded) {
         const teacher = R.normalize(teacherRaw) === '' ? null : R.normalize(teacherRaw);
-        const rule = { subject, teacher };
+        const type = R.normalize(typeRaw) === '' ? null : R.normalize(typeRaw);
+        const rule = { subject, teacher, type };
         R.addRule(rule).then((res) => {
           switch (res.status) {
             case 'added':
@@ -276,7 +305,29 @@
     };
   }
 
-  const L = { sortRules, matchesFilter, teacherLabel, renderList, createActions };
+  /**
+   * Варианты выбора вида занятия для формы ручного добавления
+   * (первый — «все занятия»). Общие для popup и options.
+   * @param {HTMLSelectElement} select
+   */
+  function fillTypeSelect(select) {
+    select.textContent = '';
+    const options = [{ value: '', text: 'Все занятия' }].concat(R.PAIR_TYPES.map((t) => ({
+      value: t.code,
+      text: t.label.charAt(0).toUpperCase() + t.label.slice(1) + ' (' + t.code + ')',
+    })));
+    for (const o of options) {
+      const option = document.createElement('option');
+      option.value = o.value;
+      option.textContent = o.text;
+      select.appendChild(option);
+    }
+  }
+
+  const L = {
+    sortRules, matchesFilter, teacherLabel, scopeLabel, fillTypeSelect,
+    renderList, createActions,
+  };
 
   global.RASP_HIDE_RULES_LIST = L;
   if (typeof module !== 'undefined' && module.exports) {

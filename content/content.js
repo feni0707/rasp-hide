@@ -3,7 +3,7 @@
  * Прогон по #raspisanie-table td.cell, скрытие пар (плейсхолдер/зачёркивание),
  * <hr> пары скрывается/восстанавливается вместе с парой в placeholder-режиме;
  * в strike-режиме <hr> не трогается (разделитель преподавателей остаётся),
- * фон клетки (transparent при полном скрытии, только placeholder),
+ * фон клетки (при полном скрытии — как у пустой клетки, только placeholder),
  * плейсхолдеры синхронизируются только в placeholder-режиме — случайный
  * strike-прогон (MutationObserver/debounce) их не уничтожает, поэтому
  * переключение стиля не теряет «скрыто» и не ломает фон клетки,
@@ -17,6 +17,7 @@
   'use strict';
 
   const M = global.RASP_HIDE_MATCHER;
+  const R = global.RASP_HIDE_RULES;
   const UI = global.RASP_HIDE_UI;
   const SUG = global.RASP_HIDE_SUGGESTIONS;
 
@@ -130,8 +131,12 @@
   }
 
   /**
-   * Фон клетки: transparent при полном скрытии (только placeholder);
-   * в strike фон не трогается никогда.
+   * Фон клетки при полном скрытии (только placeholder) — как у пустой клетки.
+   * Цвет пары сайт задаёт инлайном (`background-color: … !important`), а фон
+   * пустой клетки — своими стилями: белый, у текущего дня — `.cur-day`
+   * (#e8f5e9 !important). Поэтому инлайновый фон снимается, а не подменяется:
+   * цвет пустой клетки рисует сам сайт, в том числе подсветку сегодняшнего дня.
+   * В strike фон не трогается никогда.
    * @param {HTMLElement} cell
    */
   function updateCellBackground(cell) {
@@ -141,7 +146,8 @@
     }
     if (M.isCellFullyHidden(cell)) {
       cacheCellStyle(cell);
-      cell.style.setProperty('background-color', 'transparent', 'important');
+      cell.style.removeProperty('background-color');
+      cell.style.removeProperty('background');
     } else {
       restoreCellStyle(cell);
     }
@@ -169,6 +175,7 @@
       for (const pair of pairs) {
         const name = M.getPairName(pair);
         if (!name) continue; // ОВ/ОС — не скрываемые
+        const type = M.getPairType(pair); // ЛК/ПР/ЛБ — для правил по виду занятия
         const header = pair[0];
         const blocks = M.splitPairIntoBlocks(pair);
         const blockTeachers = blocks.map((b) => M.getBlockTeacher(b));
@@ -178,7 +185,7 @@
 
         if (blocks.length === 0) {
           // Пара без блоков преподавателей — скрываема только «у всех».
-          const matched = settings.rules.some((r) => M.matchRule(name, null, r));
+          const matched = settings.rules.some((r) => M.matchRule(name, null, r, type));
           if (matched) {
             applyPairStyle(header, true);
             if (settings.style === 'placeholder') attachPoints.push(pair[pair.length - 1]);
@@ -190,7 +197,7 @@
         } else {
           for (let bi = 0; bi < blocks.length; bi++) {
             const block = blocks[bi];
-            const matched = settings.rules.some((r) => M.matchRule(name, blockTeachers[bi], r));
+            const matched = settings.rules.some((r) => M.matchRule(name, blockTeachers[bi], r, type));
             if (matched) {
               for (const el of block) applyPairStyle(el, true);
               hiddenBlocks.push(true);
@@ -217,6 +224,7 @@
           cell,
           pair,
           name,
+          type,
           teachers: M.getPairTeachers(pair),
           blocks,
           blockTeachers,
@@ -298,16 +306,17 @@
   }
 
   /**
-   * Загрузка настроек из chrome.storage.sync.
+   * Загрузка настроек из chrome.storage.sync. Правила лежат в нескольких
+   * ключах (см. lib/rules.js) — читаются одним get вместе с тумблером.
    * @returns {Promise<object>}
    */
   function loadSettings() {
     return new Promise((resolve) => {
-      chrome.storage.sync.get(['enabled', 'style', 'rules'], (res) => {
+      chrome.storage.sync.get(['enabled', 'style', ...R.RULE_KEYS], (res) => {
         settings = {
           enabled: res.enabled !== false,
           style: res.style === 'strike' ? 'strike' : 'placeholder',
-          rules: Array.isArray(res.rules) ? res.rules : [],
+          rules: R.rulesFromStorage(res),
         };
         lastCount = null; // настройки изменились — счётчик считается заново
         resolve(settings);

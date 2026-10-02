@@ -90,6 +90,21 @@
   }
 
   /**
+   * Вид занятия пары — видимый текст <b> в шапке: «ЛК», «ПР», «ЛБ»
+   * (на сайте: «Название (<b title="Лекция">ЛК</b>)»). Как и у названия,
+   * берётся только видимый текст, расшифровка из title не используется.
+   * @param {Element[]} pair
+   * @returns {string|null} null, если вида в шапке нет
+   */
+  function getPairType(pair) {
+    const first = pair && pair[0];
+    if (!first || typeof first.querySelector !== 'function') return null;
+    const b = first.querySelector('b');
+    if (!b) return null;
+    return normalize(b.textContent) || null;
+  }
+
+  /**
    * Все видимые ФИО преподавателей пары из ссылок href="/user_...".
    * У пары может быть несколько преподавателей (ПР Преп1 <hr> Преп2 — одна пара).
    * @param {Element[]} pair
@@ -152,22 +167,38 @@
   }
 
   /**
-   * Совпадение правила с ФИО преподавателя (одна клетка — преподаватель пары/блока).
-   * «У всех» (teacher: null) совпадает с любым преподавателем; конкретное ФИО —
-   * только с точным совпадением. Для пары с несколькими преподавателями матчинг
-   * выполняется по каждому блоку отдельно (см. splitPairIntoBlocks).
+   * Пустое значение необязательного признака правила — «любой».
+   * @param {string|null|undefined} value
+   * @returns {string|null}
+   */
+  function optional(value) {
+    if (value == null) return null;
+    return normalize(value) || null;
+  }
+
+  /**
+   * Совпадение правила с парой/блоком: точное название, преподаватель и вид.
+   * «У всех» (teacher: null) совпадает с любым преподавателем, «все занятия»
+   * (type: null) — с любым видом; конкретные значения — только точно.
+   * Для пары с несколькими преподавателями матчинг выполняется по каждому
+   * блоку отдельно (см. splitPairIntoBlocks). Та же семантика, что
+   * у ruleMatchesPair в lib/rules.js (сверяется тестом).
    * @param {string|null} name - название пары (нормализованное)
    * @param {string|null} teacher - ФИО преподавателя блока/пары или null
-   * @param {object} rule - { subject, teacher: string|null, enabled }
+   * @param {object} rule - { subject, teacher: string|null, type?: string|null, enabled }
+   * @param {string|null} [type] - вид занятия пары (getPairType) или null
    * @returns {boolean}
    */
-  function matchRule(name, teacher, rule) {
+  function matchRule(name, teacher, rule, type = null) {
     if (!rule) return false;
     if (rule.enabled === false) return false;
     if (!name) return false;
     if (normalize(name) !== normalize(rule.subject)) return false;
-    if (rule.teacher == null) return true; // «у всех преподавателей»
-    return normalize(rule.teacher) === normalize(teacher || '');
+    const ruleType = optional(rule.type);
+    if (ruleType !== null && ruleType !== optional(type)) return false;
+    const ruleTeacher = optional(rule.teacher);
+    if (ruleTeacher === null) return true; // «у всех преподавателей»
+    return ruleTeacher === optional(teacher);
   }
 
   /**
@@ -242,6 +273,7 @@
     splitIntoPairs,
     splitPairIntoBlocks,
     getPairName,
+    getPairType,
     getPairTeachers,
     getBlockTeacher,
     matchRule,
