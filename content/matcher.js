@@ -76,14 +76,32 @@
   }
 
   /**
-   * Видимое короткое название пары из первого <div> (span.textContent).
+   * <span> с названием пары. Обычно он в первом <div> рядом с видом:
+   * «Название (<b>ЛК</b>)». У элективных дисциплин (физра) вид стоит
+   * отдельной строкой, а название — в следующем <div> без преподавателя:
+   * «(<b>ПР</b>)» / «<span>Элект.дисц.по ФКиС</span>».
+   * @param {Element[]} pair
+   * @returns {Element|null}
+   */
+  function findNameSpan(pair) {
+    const first = pair && pair[0];
+    if (!first || typeof first.querySelector !== 'function') return null;
+    const span = first.querySelector('span');
+    if (span) return span;
+    const second = pair[1];
+    if (!first.querySelector('b') || !second || second.tagName !== 'DIV' ||
+      typeof second.querySelector !== 'function') return null;
+    if (second.querySelector('a[href^="/user_"]')) return null;
+    return second.querySelector('span');
+  }
+
+  /**
+   * Видимое короткое название пары (span.textContent) — см. findNameSpan.
    * @param {Element[]} pair
    * @returns {string|null} null, если названия нет (ОВ/ОС) — пара не скрываема.
    */
   function getPairName(pair) {
-    const first = pair && pair[0];
-    if (!first || typeof first.querySelector !== 'function') return null;
-    const span = first.querySelector('span');
+    const span = findNameSpan(pair);
     if (!span) return null;
     const name = normalize(span.textContent);
     return name || null;
