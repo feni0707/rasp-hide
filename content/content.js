@@ -176,8 +176,10 @@
         const name = M.getPairName(pair);
         if (!name) continue; // ОВ/ОС — не скрываемые
         const type = M.getPairType(pair); // ЛК/ПР/ЛБ — для правил по виду занятия
-        const header = pair[0];
         const blocks = M.splitPairIntoBlocks(pair);
+        // Шапка и замыкающий <hr> — вне блоков: скрываются вместе со всей парой.
+        const inBlocks = new Set([].concat(...blocks));
+        const pairFrame = pair.filter((el) => !inBlocks.has(el));
         const blockTeachers = blocks.map((b) => M.getBlockTeacher(b));
         const hiddenBlocks = [];
         const attachPoints = [];
@@ -187,11 +189,8 @@
           // Пара без блоков преподавателей — скрываема только «у всех».
           const matched = settings.rules.some((r) => M.matchRule(name, null, r, type));
           if (matched) {
-            applyPairStyle(header, true);
             if (settings.style === 'placeholder') attachPoints.push(pair[pair.length - 1]);
             hiddenCount++;
-          } else {
-            applyPairStyle(header, false);
           }
           allHidden = matched;
         } else {
@@ -208,7 +207,6 @@
               allHidden = false;
             }
           }
-          applyPairStyle(header, allHidden);
           if (settings.style === 'placeholder') {
             if (allHidden) {
               attachPoints.push(pair[pair.length - 1]); // одна «скрыто» на всю пару
@@ -219,6 +217,7 @@
             }
           }
         }
+        for (const el of pairFrame) applyPairStyle(el, allHidden);
         syncPlaceholders(cell, pair, attachPoints);
         allMeta.push({
           cell,

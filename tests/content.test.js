@@ -64,6 +64,9 @@ function makeStyle() {
 function matchesSel(node, sel) {
   if (sel === 'b') return node.tagName === 'B';
   if (sel === 'span') return node.tagName === 'SPAN';
+  if (sel === 'a[href^="/event/"]') {
+    return node.tagName === 'A' && String(node.getAttribute('href') || '').startsWith('/event/');
+  }
   if (sel === 'a[href^="/user_"]') {
     return (
       node.tagName === 'A' &&
@@ -86,6 +89,12 @@ function makeNode(tag, attrs = {}, children = []) {
     tagName: String(tag).toUpperCase(),
     children: [],
     parentNode: null,
+    // Следующий сосед, как в DOM: без него insertBefore уводил бы вставку в конец.
+    get nextSibling() {
+      if (!this.parentNode) return null;
+      const siblings = this.parentNode.children;
+      return siblings[siblings.indexOf(this) + 1] || null;
+    },
     style: makeStyle(),
     _attrs: { ...attrs },
     classList,
@@ -469,6 +478,52 @@ async function testProcessCellsIgnoresNamelessPairs() {
   assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 0 }]);
 }
 
+async function testProcessCellsHidesNameOnSeparateLine() {
+  // Физра: «(ПР)» и название в разных <div>, без преподавателя — скрывается целиком.
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule('Элект.дисц.по ФКиС')] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const typeDiv = makeNode('div', {}, [makeNode('b', { text: 'ПР' })]);
+  const nameDiv = makeNode('div', {}, [makeNode('span', { text: 'Элект.дисц.по ФКиС' })]);
+  const cell = makeCell([[typeDiv, nameDiv]]);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  assert.strictEqual(typeDiv.style.display, 'none', 'строка вида скрыта');
+  assert.strictEqual(nameDiv.style.display, 'none', 'строка названия скрыта');
+  assert.strictEqual(cell.children.filter((c) => c.classList.contains('rh-placeholder')).length, 1);
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
+async function testProcessCellsHidesEvent() {
+  // Мероприятие без преподавателя над обычной парой: скрывается только оно.
+  const name = 'Код ТПУ "Университет для инженерии и исследований "';
+  const mock = makeChromeMock({ style: 'placeholder', rules: [rule(name)] });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const event = [
+    makeNode('div', {}, [
+      makeNode('a', { href: '/event/view.html?id=5298', text: name }),
+      makeNode('b', { text: 'ЛК' }),
+    ]),
+    makeNode('div', {}, [makeNode('a', { href: '/sooruzhenie_11', text: '10' })]),
+  ];
+  const lesson = pairDiv('"Код ТПУ"', { type: 'ЛК', teacher: 'Малыгина Н. И.' });
+  const cell = makeCell([event, lesson], true);
+  global.document = makeSchedule([cell]);
+
+  C.processCells();
+
+  assert.strictEqual(event[0].style.display, 'none', 'шапка мероприятия скрыта');
+  assert.strictEqual(event[1].style.display, 'none', 'место мероприятия скрыто');
+  assert.notStrictEqual(lesson[0].style.display, 'none', 'пара под ним видна');
+  assert.notStrictEqual(lesson[1].style.display, 'none');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+}
+
 async function testProcessCellsHidesOnlyMatchingType() {
   // «Лекции у всех»: лекция предмета скрыта, практика того же предмета — нет.
   const mock = makeChromeMock({
@@ -527,6 +582,44 @@ function makeTwoTeacherCell(subject) {
   const t2 = makeNode('div', {}, [makeNode('a', { href: '/user_2', text: 'Макаровских А. В.' })]);
   for (const el of [subj, t1, hr, t2]) cell.appendChild(el);
   return { cell, subj, t1, hr, t2 };
+}
+
+async function testProcessCellsHidesWholePairBeforeSeparator() {
+  // Две разные пары в клетке через <hr>. Правило «у конкретного преподавателя»
+  // по единственному преподавателю верхней пары скрывает её целиком, с шапкой:
+  // замыкающий <hr> — не блок без преподавателя, скрытию шапки не мешает.
+  const mock = makeChromeMock({
+    style: 'placeholder',
+    rules: [rule('Практ.курс АЯ. А1.2', 'Ануфриева Т. Н.')],
+  });
+  global.chrome = mock.chrome;
+  await C.loadSettings();
+
+  const cell = makeCell([
+    pairDiv('Практ.курс АЯ. А1.2', { teacher: 'Ануфриева Т. Н.' }),
+    pairDiv('АЯ д/акад.целей.В1', { teacher: 'Макаровских А. В.' }),
+  ], true);
+  global.document = makeSchedule([cell]);
+  const [header, teacher, hr, header2, teacher2] = cell.children;
+
+  C.processCells();
+
+  assert.strictEqual(header.style.display, 'none', 'шапка верхней пары скрыта');
+  assert.strictEqual(teacher.style.display, 'none', 'преподаватель скрыт');
+  assert.strictEqual(hr.style.display, 'none', 'разделитель уходит вместе с парой');
+  assert.strictEqual(header2.style.display, '', 'нижняя пара видима');
+  assert.strictEqual(teacher2.style.display, '', 'преподаватель нижней пары видим');
+  const phs = cell.children.filter((c) => c.classList.contains('rh-placeholder'));
+  assert.strictEqual(phs.length, 1, 'одна «скрыто» на всю пару');
+  assert.strictEqual(cell.children.indexOf(phs[0]), 3, 'плейсхолдер после разделителя');
+  assert.deepStrictEqual(mock.messages, [{ type: 'count', value: 1 }]);
+
+  // Правило снято — пара возвращается целиком.
+  mock.state.rules = [];
+  await C.loadSettings();
+  C.processCells();
+  for (const el of [header, teacher, hr]) assert.strictEqual(el.style.display, '');
+  assert.ok(!cell.children.some((c) => c.classList.contains('rh-placeholder')));
 }
 
 async function testProcessCellsHidesSecondTeacherBlock() {
@@ -863,6 +956,7 @@ async function run() {
     ['hidePair: strike', testHidePairStrike],
     ['<hr> скрывается и восстанавливается (placeholder)', testHrHiddenWithPair],
     ['<hr> не трогается в strike', testHrKeptInStrike],
+    ['processCells: «у преподавателя» скрывает пару с шапкой перед разделителем', testProcessCellsHidesWholePairBeforeSeparator],
     ['restorePair: возврат', testRestorePair],
     ['фон: при полном скрытии — как у пустой клетки', testCellBackgroundEmptyWhenFullyHidden],
     ['фон: клетка текущего дня остаётся подсвеченной', testCellBackgroundTodayStaysHighlighted],
@@ -871,6 +965,8 @@ async function run() {
     ['переключение стиля: strike не удаляет плейсхолдеры', testStrikeRunDoesNotRemovePlaceholders],
     ['processCells: счётчик и sendMessage', testProcessCellsCountsAndSends],
     ['processCells: ОВ/ОС не скрывается', testProcessCellsIgnoresNamelessPairs],
+    ['processCells: название отдельной строкой (физра)', testProcessCellsHidesNameOnSeparateLine],
+    ['processCells: мероприятие (/event/) скрывается', testProcessCellsHidesEvent],
     ['processCells: второй преподаватель скрывает только свой блок', testProcessCellsHidesSecondTeacherBlock],
     ['processCells: второй преподаватель скрывает блок (strike)', testProcessCellsHidesSecondTeacherBlockStrike],
     ['processCells: оба преподавателя → шапка + одна «скрыто»', testProcessCellsFullHidePairByAllTeachers],

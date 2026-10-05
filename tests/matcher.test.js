@@ -14,6 +14,9 @@ const M = require('../content/matcher.js');
 function matchesSel(node, sel) {
   if (sel === 'b') return node.tagName === 'B';
   if (sel === 'span') return node.tagName === 'SPAN';
+  if (sel === 'a[href^="/event/"]') {
+    return node.tagName === 'A' && String(node.getAttribute('href') || '').startsWith('/event/');
+  }
   if (sel === 'a[href^="/user_"]') {
     return (
       node.tagName === 'A' &&
@@ -180,6 +183,49 @@ function testPairNameWithoutSubject() {
   assert.strictEqual(M.getPairName(group), null);
 }
 
+function testPairNameOnSeparateLine() {
+  // Элективная физра: «(ПР)» отдельной строкой, название — в следующем <div>,
+  // преподавателя нет.
+  const cell = el('td', { class: 'cell' }, [
+    el('div', {}, [el('b', { text: 'ПР' })]),
+    el('div', {}, [el('span', { text: 'Элект.дисц.по ФКиС' })]),
+  ]);
+  const pairs = M.splitIntoPairs(cell.children);
+  assert.strictEqual(pairs.length, 1, 'вид и название — одна пара');
+  assert.strictEqual(M.getPairName(pairs[0]), 'Элект.дисц.по ФКиС');
+  assert.strictEqual(M.getPairType(pairs[0]), 'ПР');
+  assert.deepStrictEqual(M.getPairTeachers(pairs[0]), []);
+  // Строка с преподавателем названием не считается.
+  const withTeacher = [
+    el('div', {}, [el('b', { text: 'ПР' })]),
+    el('div', {}, [el('span', { text: 'x' }), el('a', { href: '/user_1', text: 'Иванов И. И.' })]),
+  ];
+  assert.strictEqual(M.getPairName(withTeacher), null);
+}
+
+function testPairNameEvent() {
+  // Мероприятие: название — ссылка /event/, преподавателя нет; за ним через
+  // <hr> обычная пара с тем же местом.
+  const cell = el('td', { class: 'cell' }, [
+    el('div', {}, [
+      el('a', { href: '/event/view.html?id=5298', text: 'Код ТПУ "Университет для инженерии и исследований "' }),
+      el('b', { text: 'ЛК' }),
+    ]),
+    el('div', {}, [el('a', { href: '/sooruzhenie_11', text: '10' })]),
+    el('hr'),
+    el('div', {}, [el('span', { text: '"Код ТПУ"' }), el('b', { text: 'ЛК' })]),
+    el('div', {}, [el('a', { href: '/user_592789', text: 'Малыгина Н. И.' })]),
+  ]);
+  const pairs = M.splitIntoPairs(cell.children);
+  assert.strictEqual(pairs.length, 2);
+  assert.strictEqual(M.getPairName(pairs[0]), 'Код ТПУ "Университет для инженерии и исследований "');
+  assert.strictEqual(M.getPairType(pairs[0]), 'ЛК');
+  assert.deepStrictEqual(M.getPairTeachers(pairs[0]), []);
+  assert.strictEqual(M.getPairName(pairs[1]), '"Код ТПУ"');
+  // Прочие ссылки (корпус, аудитория) названием не считаются.
+  assert.strictEqual(M.getPairName([el('div', {}, [el('a', { href: '/sooruzhenie_11', text: '10' })])]), null);
+}
+
 /* ---------- splitPairIntoBlocks ---------- */
 
 function testSplitBlocksSingleTeacher() {
@@ -210,6 +256,17 @@ function testSplitBlocksOnlyHeader() {
   const cell = makeCell([pairDiv('Математика')]);
   const pair = M.splitIntoPairs(cell.children)[0];
   assert.deepStrictEqual(M.splitPairIntoBlocks(pair), []);
+}
+
+function testSplitBlocksTrailingHrNotABlock() {
+  // Замыкающий <hr> — разделитель со следующей парой, а не блок без преподавателя.
+  const cell = makeCell(
+    [pairDiv('Математика', { teacher: 'Иванов И. И.' }), pairDiv('Физика', { teacher: 'Петров П. П.' })],
+    true
+  );
+  const pair = M.splitIntoPairs(cell.children)[0];
+  assert.strictEqual(pair[pair.length - 1].tagName, 'HR', '<hr> остаётся в паре');
+  assert.deepStrictEqual(M.splitPairIntoBlocks(pair), [[pair[1]]]);
 }
 
 /* ---------- getBlockTeacher ---------- */
@@ -410,9 +467,12 @@ const tests = [
   ['splitPairIntoBlocks: один преподаватель', testSplitBlocksSingleTeacher],
   ['splitPairIntoBlocks: два преподавателя (<hr> во 2-м блоке)', testSplitBlocksTwoTeachers],
   ['splitPairIntoBlocks: без преподавателей', testSplitBlocksOnlyHeader],
+  ['splitPairIntoBlocks: замыкающий <hr> — не блок', testSplitBlocksTrailingHrNotABlock],
   ['getBlockTeacher: ФИО / null', testBlockTeacher],
   ['getPairName: название', testPairName],
   ['getPairName: без названия (ОВ/ОС) — null', testPairNameWithoutSubject],
+  ['getPairName: название отдельной строкой (физра)', testPairNameOnSeparateLine],
+  ['getPairName: мероприятие — ссылка /event/', testPairNameEvent],
   ['getPairTeachers: ФИО / пусто', testPairTeachers],
   ['getPairTeachers: несколько преподавателей', testPairTeachersMultiple],
   ['getPairTeachers: без дубликатов', testPairTeachersUnique],

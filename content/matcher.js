@@ -75,17 +75,48 @@
     return pairs;
   }
 
+  /** Ссылка на мероприятие: у него название — ссылка, а не <span>. */
+  const EVENT_LINK = 'a[href^="/event/"]';
+
   /**
-   * Видимое короткое название пары из первого <div> (span.textContent).
+   * Элемент с видимым названием в строке: <span> пары или ссылка мероприятия
+   * («<a href="/event/view.html?id=…">Код ТПУ …</a> (<b>ЛК</b>)»).
+   * @param {Element} el
+   * @returns {Element|null}
+   */
+  function nameElementIn(el) {
+    return el.querySelector('span') || el.querySelector(EVENT_LINK);
+  }
+
+  /**
+   * Элемент с названием пары. Обычно он в первом <div> рядом с видом:
+   * «Название (<b>ЛК</b>)». У элективных дисциплин (физра) вид стоит
+   * отдельной строкой, а название — в следующем <div> без преподавателя:
+   * «(<b>ПР</b>)» / «<span>Элект.дисц.по ФКиС</span>».
+   * @param {Element[]} pair
+   * @returns {Element|null}
+   */
+  function findNameElement(pair) {
+    const first = pair && pair[0];
+    if (!first || typeof first.querySelector !== 'function') return null;
+    const own = nameElementIn(first);
+    if (own) return own;
+    const second = pair[1];
+    if (!first.querySelector('b') || !second || second.tagName !== 'DIV' ||
+      typeof second.querySelector !== 'function') return null;
+    if (second.querySelector('a[href^="/user_"]')) return null;
+    return nameElementIn(second);
+  }
+
+  /**
+   * Видимое короткое название пары (textContent) — см. findNameElement.
    * @param {Element[]} pair
    * @returns {string|null} null, если названия нет (ОВ/ОС) — пара не скрываема.
    */
   function getPairName(pair) {
-    const first = pair && pair[0];
-    if (!first || typeof first.querySelector !== 'function') return null;
-    const span = first.querySelector('span');
-    if (!span) return null;
-    const name = normalize(span.textContent);
+    const nameEl = findNameElement(pair);
+    if (!nameEl) return null;
+    const name = normalize(nameEl.textContent);
     return name || null;
   }
 
@@ -128,6 +159,9 @@
    * Первый элемент пары (div с названием/типом) — «шапка», в блоки не входит:
    * пара вида [шапка, Преп1, <hr>, Преп2] → блоки [[Преп1], [<hr>, Преп2]].
    * <hr> принадлежит следующему за ним блоку (скрывается вместе с ним).
+   * Замыкающий <hr> — разделитель со следующей парой клетки, а не блок:
+   * в блоки не входит (иначе пустой «блок» без преподавателя не давал бы
+   * скрыть шапку пары). Он остаётся «хвостом» пары, как и шапка.
    * @param {Element[]} pair
    * @returns {Element[][]}
    */
@@ -144,7 +178,8 @@
         current.push(el);
       }
     }
-    if (current.length) blocks.push(current);
+    const onlyHr = current.every((el) => el.tagName === 'HR');
+    if (current.length && !onlyHr) blocks.push(current);
     return blocks;
   }
 
