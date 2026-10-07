@@ -1,5 +1,6 @@
 /**
- * Сборка архива для Chrome Web Store: dist/rasp-hide-<версия>.zip.
+ * Сборка архива для магазинов расширений: dist/rasp-hide-<версия>.zip.
+ * Архив один на все браузеры (Chrome Web Store, Firefox Add-ons, Edge, Opera).
  *
  * В архив попадают только файлы, на которые ссылаются манифест и страницы
  * расширения (popup, options), плюс LICENSE. Тесты, документация, .DS_Store
@@ -45,6 +46,8 @@ function shippedFiles() {
   if (manifest.background && manifest.background.service_worker) {
     files.add(manifest.background.service_worker);
   }
+  // Firefox не запускает service worker в фоне и берёт background.scripts.
+  for (const f of (manifest.background && manifest.background.scripts) || []) files.add(f);
   for (const cs of manifest.content_scripts || []) {
     for (const f of [...(cs.js || []), ...(cs.css || [])]) files.add(f);
   }
