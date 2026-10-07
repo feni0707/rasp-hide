@@ -1,5 +1,5 @@
 /**
- * Проверки пакета перед публикацией в Chrome Web Store (STORE_CHECKLIST §1):
+ * Проверки пакета перед публикацией в магазинах расширений (STORE_CHECKLIST §1):
  * манифест, права, файлы пакета, запрещённые конструкции, иконки.
  * Всё, что модерация отклонит или что ломает установку, ловится здесь,
  * а не при ручном прогоне чек-листа.
@@ -37,6 +37,20 @@ t('права: ровно ["storage"], без host_permissions и необяза
   for (const key of ['host_permissions', 'optional_permissions', 'optional_host_permissions']) {
     assert.ok(!(key in manifest), key + ' не должно быть');
   }
+});
+
+t('фон: один и тот же файл как service worker (Chrome) и как scripts (Firefox)', () => {
+  // Firefox не запускает service worker в фоне; Chrome до 121 не грузит манифест
+  // с background.scripts, поэтому нижняя граница версии обязательна.
+  assert.deepStrictEqual(manifest.background.scripts, [manifest.background.service_worker]);
+  assert.ok(Number(manifest.minimum_chrome_version) >= 121, 'minimum_chrome_version >= 121');
+});
+
+t('Firefox: постоянный id, нижняя версия и заявление «данные не собираются»', () => {
+  const gecko = manifest.browser_specific_settings.gecko;
+  assert.ok(/^[\w.+-]+@[\w.-]+$/.test(gecko.id), 'gecko.id: ' + gecko.id);
+  assert.ok(/^\d+\.\d+$/.test(gecko.strict_min_version), gecko.strict_min_version);
+  assert.deepStrictEqual(gecko.data_collection_permissions, { required: ['none'] });
 });
 
 t('content script — только на ro-rasp.tpu.ru, общая нормализация грузится первой', () => {
